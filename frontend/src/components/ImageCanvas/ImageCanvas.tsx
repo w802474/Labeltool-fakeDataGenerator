@@ -245,14 +245,31 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
       return;
     }
 
-    const clickedRegion = getRegionAtPoint(pos, currentDisplayRegions);
-    if (clickedRegion) {
-      // Toggle clicked region for persistent text display
-      setClickedRegionId(prev => prev === clickedRegion.id ? null : clickedRegion.id);
-      setSelectedRegion(clickedRegion.id);
+    // Check if regions should be interactive before detecting clicks
+    const shouldRegionsBeInteractive = (() => {
+      if (processingState.displayMode === 'original' || processingState.isProcessing) {
+        return true;
+      }
+      if (processingState.displayMode === 'processed') {
+        return processingState.showRegionOverlay;
+      }
+      return false;
+    })();
+
+    if (shouldRegionsBeInteractive) {
+      const clickedRegion = getRegionAtPoint(pos, currentDisplayRegions);
+      if (clickedRegion) {
+        // Toggle clicked region for persistent text display
+        setClickedRegionId(prev => prev === clickedRegion.id ? null : clickedRegion.id);
+        setSelectedRegion(clickedRegion.id);
+      } else {
+        // Only clear selection if we're actually clicking on empty space
+        // Not if this is triggered by ending a drag operation
+        setSelectedRegion(null);
+        setClickedRegionId(null);
+      }
     } else {
-      // Only clear selection if we're actually clicking on empty space
-      // Not if this is triggered by ending a drag operation
+      // If regions are not interactive, always clear selection
       setSelectedRegion(null);
       setClickedRegionId(null);
     }
@@ -440,8 +457,19 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
       return 'grabbing';
     }
 
-    // Check for hover states
-    if (pos && currentSession) {
+    // Determine if regions should be interactive
+    const shouldRegionsBeInteractive = (() => {
+      if (processingState.displayMode === 'original' || processingState.isProcessing) {
+        return true;
+      }
+      if (processingState.displayMode === 'processed') {
+        return processingState.showRegionOverlay;
+      }
+      return false;
+    })();
+
+    // Check for hover states (only if regions should be interactive)
+    if (pos && currentSession && shouldRegionsBeInteractive) {
       const selectedRegion = currentDisplayRegions.find(r => r.id === canvasState.selectedRegionId);
       if (selectedRegion) {
         const handle = getResizeHandle(pos, selectedRegion);
@@ -479,16 +507,27 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
     }
 
     return 'default';
-  }, [draggedRegionId, draggedHandle, isImageDragging, currentSession, canvasState.selectedRegionId, getResizeHandle, scale, offset, getRegionAtPoint]);
+  }, [draggedRegionId, draggedHandle, isImageDragging, currentSession, canvasState.selectedRegionId, getResizeHandle, scale, offset, getRegionAtPoint, processingState]);
 
   // Handle mouse down for potential dragging
   const handleMouseDown = useCallback((e: any) => {
     const pos = e.target.getStage().getPointerPosition();
     if (!pos || !currentSession) return;
 
+    // Determine if regions should be interactive
+    const shouldRegionsBeInteractive = (() => {
+      if (processingState.displayMode === 'original' || processingState.isProcessing) {
+        return true;
+      }
+      if (processingState.displayMode === 'processed') {
+        return processingState.showRegionOverlay;
+      }
+      return false;
+    })();
+
     // PRIORITY 1: Check if clicking on resize handles of the currently selected region
     // This has the highest priority to ensure proper layer handling
-    if (canvasState.selectedRegionId) {
+    if (canvasState.selectedRegionId && shouldRegionsBeInteractive) {
       const selectedRegion = currentDisplayRegions.find(r => r.id === canvasState.selectedRegionId);
       if (selectedRegion) {
         const handle = getResizeHandle(pos, selectedRegion);
@@ -526,33 +565,39 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
     }
 
     // PRIORITY 2: Check if clicked on other regions (for selection/interaction)
-    const clickedRegion = getRegionAtPoint(pos, currentDisplayRegions);
-    if (clickedRegion) {
-      // If clicking on a different region, check for move operation
-      const screenBbox = {
-        x: clickedRegion.bounding_box.x * scale + offset.x,
-        y: clickedRegion.bounding_box.y * scale + offset.y,
-        width: clickedRegion.bounding_box.width * scale,
-        height: clickedRegion.bounding_box.height * scale,
-      };
-      
-      if (
-        pos.x >= screenBbox.x && pos.x <= screenBbox.x + screenBbox.width &&
-        pos.y >= screenBbox.y && pos.y <= screenBbox.y + screenBbox.height
-      ) {
-        // Start move operation for other region
-        setIsUserInteracting(true);
-        setDraggedRegionId(clickedRegion.id);
-        setDraggedHandle('move');
-        setInitialRegionBounds(clickedRegion.bounding_box);
-        setRegionDragStart(pos);
+    // But only if regions should be interactive
+
+    if (shouldRegionsBeInteractive) {
+      const clickedRegion = getRegionAtPoint(pos, currentDisplayRegions);
+      if (clickedRegion) {
+        // If clicking on a different region, check for move operation
+        const screenBbox = {
+          x: clickedRegion.bounding_box.x * scale + offset.x,
+          y: clickedRegion.bounding_box.y * scale + offset.y,
+          width: clickedRegion.bounding_box.width * scale,
+          height: clickedRegion.bounding_box.height * scale,
+        };
+        
+        if (
+          pos.x >= screenBbox.x && pos.x <= screenBbox.x + screenBbox.width &&
+          pos.y >= screenBbox.y && pos.y <= screenBbox.y + screenBbox.height
+        ) {
+          // Start move operation for other region
+          setIsUserInteracting(true);
+          setDraggedRegionId(clickedRegion.id);
+          setDraggedHandle('move');
+          setInitialRegionBounds(clickedRegion.bounding_box);
+          setRegionDragStart(pos);
+          return;
+        }
+        
+        // Just selecting the region
+        setSelectedRegion(clickedRegion.id);
+        setClickedRegionId(clickedRegion.id);
+        setDragStart(pos);
+        setIsDragging(false);
         return;
       }
-      
-      // Just selecting the region
-      setDragStart(pos);
-      setIsDragging(false);
-      return;
     }
     
     // PRIORITY 3: Clicking on empty space or image - start image dragging
@@ -560,7 +605,7 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
     setImageDragStart(pos);
     setLastOffset(offset);
     setIsImageDragging(false);
-  }, [currentSession, getRegionAtPoint, offset, canvasState.selectedRegionId, getResizeHandle, scale]);
+  }, [currentSession, getRegionAtPoint, offset, canvasState.selectedRegionId, getResizeHandle, scale, setSelectedRegion, setClickedRegionId, processingState]);
 
   // Handle mouse move for dragging and hover
   const handleMouseMove = useCallback((e: any) => {
@@ -660,10 +705,24 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
       }
     }
 
-    // Handle hover for text display (only if not dragging)
+    // Handle hover for text display (only if not dragging and regions should be interactive)
     if (!isDragging && !isImageDragging && !draggedRegionId) {
-      const hoveredRegion = getRegionAtPoint(pos, currentDisplayRegions);
-      setHoveredRegionId(hoveredRegion?.id || null);
+      const shouldRegionsBeInteractive = (() => {
+        if (processingState.displayMode === 'original' || processingState.isProcessing) {
+          return true;
+        }
+        if (processingState.displayMode === 'processed') {
+          return processingState.showRegionOverlay;
+        }
+        return false;
+      })();
+
+      if (shouldRegionsBeInteractive) {
+        const hoveredRegion = getRegionAtPoint(pos, currentDisplayRegions);
+        setHoveredRegionId(hoveredRegion?.id || null);
+      } else {
+        setHoveredRegionId(null);
+      }
     }
 
     // Update cursor based on current position and state
@@ -801,6 +860,19 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
     const isClicked = clickedRegionId === region.id;
     const shouldShowText = isHovered || isClicked;
     const isTextModified = region.edited_text && region.edited_text !== region.original_text;
+    
+    // Determine if regions should be interactive based on display mode and overlay settings
+    const shouldBeInteractive = (() => {
+      // Always interactive in original mode or when processing
+      if (processingState.displayMode === 'original' || processingState.isProcessing) {
+        return true;
+      }
+      // In processed mode, only interactive if overlay is enabled
+      if (processingState.displayMode === 'processed') {
+        return processingState.showRegionOverlay;
+      }
+      return false;
+    })();
 
     // Validate region data to prevent rendering issues
     const bbox = region.bounding_box;
@@ -870,10 +942,10 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
           stroke={strokeColor}
           strokeWidth={2}
           dash={isSelected ? [] : isTextModified ? [3, 2] : [5, 5]}
-          listening={true}
-          onClick={handleCanvasClick}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
+          listening={shouldBeInteractive}
+          onClick={shouldBeInteractive ? handleCanvasClick : undefined}
+          onMouseDown={shouldBeInteractive ? handleMouseDown : undefined}
+          onMouseMove={shouldBeInteractive ? handleMouseMove : undefined}
         />
 
         {/* Region label - only show on hover or click */}
@@ -971,9 +1043,9 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
               fill="#3b82f6"
               stroke="#ffffff"
               strokeWidth={1}
-              listening={true}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
+              listening={shouldBeInteractive}
+              onMouseDown={shouldBeInteractive ? handleMouseDown : undefined}
+              onMouseMove={shouldBeInteractive ? handleMouseMove : undefined}
             />
             {/* Top-right handle */}
             <Rect
@@ -984,9 +1056,9 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
               fill="#3b82f6"
               stroke="#ffffff"
               strokeWidth={1}
-              listening={true}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
+              listening={shouldBeInteractive}
+              onMouseDown={shouldBeInteractive ? handleMouseDown : undefined}
+              onMouseMove={shouldBeInteractive ? handleMouseMove : undefined}
             />
             {/* Bottom-left handle */}
             <Rect
@@ -997,9 +1069,9 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
               fill="#3b82f6"
               stroke="#ffffff"
               strokeWidth={1}
-              listening={true}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
+              listening={shouldBeInteractive}
+              onMouseDown={shouldBeInteractive ? handleMouseDown : undefined}
+              onMouseMove={shouldBeInteractive ? handleMouseMove : undefined}
             />
             {/* Bottom-right handle */}
             <Rect
@@ -1010,9 +1082,9 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
               fill="#3b82f6"
               stroke="#ffffff"
               strokeWidth={1}
-              listening={true}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
+              listening={shouldBeInteractive}
+              onMouseDown={shouldBeInteractive ? handleMouseDown : undefined}
+              onMouseMove={shouldBeInteractive ? handleMouseMove : undefined}
             />
           </>
         )}

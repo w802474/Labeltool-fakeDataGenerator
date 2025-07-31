@@ -594,6 +594,49 @@ async def download_result(session_id: str):
         )
 
 
+@router.get(
+    "/sessions/{session_id}/export/csv",
+    response_class=FileResponse,
+    summary="Download regions CSV",
+    description="Download the exported text regions CSV file"
+)
+async def download_regions_csv(
+    session_id: str,
+    file_service: FileStorageService = Depends(get_file_service)
+):
+    """Download the exported text regions CSV file."""
+    try:
+        session = get_session_or_404(session_id)
+        
+        # Check if CSV file exists in exports directory
+        csv_filename = f"{session.original_image.id}_regions.csv"  # Match naming convention
+        csv_path = file_service.get_export_path(csv_filename)
+        
+        if not csv_path.exists():
+            logger.warning(f"CSV file not found for session {session_id}: {csv_path}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Regions CSV file not found. Please save regions first."
+            )
+        
+        logger.info(f"Downloading CSV file for session {session_id}: {csv_path}")
+        
+        return FileResponse(
+            path=str(csv_path),
+            filename=f"{session.original_image.filename}_regions.csv",
+            media_type="text/csv"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to download CSV for session {session_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to download CSV: {str(e)}"
+        )
+
+
 @router.delete(
     "/sessions/{session_id}",
     status_code=status.HTTP_204_NO_CONTENT,

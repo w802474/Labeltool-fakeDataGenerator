@@ -147,6 +147,16 @@ class ApiService {
     return response.data;
   }
 
+  async downloadRegionsCSV(sessionId: string): Promise<Blob> {
+    const response = await this.client.get(
+      `/sessions/${sessionId}/export/csv`,
+      {
+        responseType: 'blob',
+      }
+    );
+    return response.data;
+  }
+
   async deleteSession(sessionId: string): Promise<void> {
     await this.client.delete(`/sessions/${sessionId}`);
   }

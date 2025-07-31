@@ -57,6 +57,7 @@ interface AppStore extends AppState {
   updateTextRegions: (regions: TextRegion[], mode?: string, exportCsv?: boolean, manageLoadingState?: boolean) => Promise<void>;
   processTextRemoval: () => Promise<void>;
   downloadResult: () => Promise<void>;
+  downloadRegionsCSV: () => Promise<void>;
   deleteSession: () => Promise<void>;
   generateTextInRegions: () => Promise<void>;
   generateTextInRegions: () => Promise<void>;
@@ -446,10 +447,56 @@ export const useAppStore = create<AppStore>()(
             setError(null);
             
             const blob = await apiService.downloadResult(currentSession.id);
-            const filename = `processed_${currentSession.original_image.filename}`;
+            
+            // Generate filename based on current state
+            const originalName = currentSession.original_image.filename;
+            const nameWithoutExt = originalName.replace(/\.[^/.]+$/, ""); // Remove extension
+            const extension = originalName.match(/\.[^/.]+$/)?.[0] || '.jpg'; // Get extension or default to .jpg
+            
+            let filename = `${nameWithoutExt}_textRemoved`;
+            
+            // More reliable approach: check if current processed_image contains generated text
+            // We can detect this by checking if there are regions with user_input_text AND the image path suggests generated content
+            const hasRegionsWithUserText = currentSession.processed_text_regions && 
+                                          currentSession.processed_text_regions.some(region => 
+                                            region.user_input_text && region.user_input_text.trim().length > 0
+                                          );
+            
+            // Check if current processed_image path indicates it has generated text
+            // Generated text images typically have different timestamps or identifiers in their paths
+            const currentImagePath = currentSession.processed_image?.path || '';
+            const imagePathSuggestsGenerated = currentImagePath.includes('generated') || 
+                                             (hasRegionsWithUserText && currentSession.status === 'generated');
+            
+            // Only add generateText suffix if we have user text regions AND image path suggests it's generated content
+            if (hasRegionsWithUserText && imagePathSuggestsGenerated) {
+              filename += '_generateText';
+            }
+            
+            filename += extension;
             apiService.downloadBlob(blob, filename);
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Failed to download result';
+            setError(errorMessage);
+            throw error;
+          }
+        },
+
+        downloadRegionsCSV: async () => {
+          const { currentSession, setError } = get();
+          
+          if (!currentSession) {
+            throw new Error('No active session');
+          }
+
+          try {
+            setError(null);
+            
+            const blob = await apiService.downloadRegionsCSV(currentSession.id);
+            const filename = `${currentSession.original_image.filename}_regions.csv`;
+            apiService.downloadBlob(blob, filename);
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Failed to download regions CSV';
             setError(errorMessage);
             throw error;
           }
@@ -478,7 +525,7 @@ export const useAppStore = create<AppStore>()(
         },
 
         generateTextInRegions: async () => {
-          const { currentSession, setLoading, setError, setCurrentSession, setImageDisplayMode, updateTextRegions, processingState } = get();
+          const { currentSession, setLoading, setError, setCurrentSession, setImageDisplayMode, setShowRegionOverlay, updateTextRegions, processingState } = get();
           
           if (!currentSession) {
             throw new Error('No active session');
@@ -532,17 +579,19 @@ export const useAppStore = create<AppStore>()(
               processingState.displayMode,
               async (sessionData: any) => {
                 // Get the latest session state and update it with restored data
-                const currentState = get();
-                if (currentState.currentSession) {
+                const { currentSession, setCurrentSession, setImageDisplayMode, setShowRegionOverlay } = get();
+                if (currentSession) {
                   console.log('Undo text generation - restore previous state:', {
-                    current_processed_image: currentState.currentSession.processed_image?.path,
-                    restore_to_processed_image: sessionData.processed_image?.path
+                    current_processed_image: currentSession.processed_image?.path,
+                    restore_to_processed_image: sessionData.processed_image?.path,
+                    keepProcessedMode: sessionData.keepProcessedMode,
+                    showRegionOverlay: sessionData.showRegionOverlay
                   });
                   
                   try {
                     // Call the new restore API to sync backend state
                     const restoredSession = await apiService.restoreSessionState(
-                      currentState.currentSession.id,
+                      currentSession.id,
                       sessionData.processed_image,
                       sessionData.processed_text_regions || []
                     );
@@ -553,17 +602,51 @@ export const useAppStore = create<AppStore>()(
                       updated_at: new Date().toISOString() // Force timestamp update for image reload
                     });
                     
-                    console.log('✅ Backend session state successfully restored');
+                    // Ensure we stay in processed mode and show regions if specified
+                    if (sessionData.keepProcessedMode) {
+                      console.log('🔄 Setting display mode to processed');
+                      setImageDisplayMode('processed');
+                    }
+                    
+                    if (sessionData.showRegionOverlay) {
+                      console.log('👁️ Setting showRegionOverlay to true');
+                      // Use the store's set function directly to ensure the update works
+                      set((state) => ({
+                        processingState: {
+                          ...state.processingState,
+                          showRegionOverlay: true
+                        }
+                      }));
+                    }
+                    
+                    console.log('✅ Backend session state successfully restored with display mode preserved');
                   } catch (error) {
                     console.error('❌ Failed to restore session:', error);
                     // Fallback to frontend-only update
                     const updatedSession = {
-                      ...currentState.currentSession,
+                      ...currentSession,
                       processed_image: sessionData.processed_image,
                       processed_text_regions: sessionData.processed_text_regions,
                       updated_at: new Date().toISOString()
                     };
                     setCurrentSession(updatedSession);
+                    
+                    // Apply display mode changes even in fallback
+                    if (sessionData.keepProcessedMode) {
+                      console.log('🔄 [Fallback] Setting display mode to processed');
+                      setImageDisplayMode('processed');
+                    }
+                    
+                    if (sessionData.showRegionOverlay) {
+                      console.log('👁️ [Fallback] Setting showRegionOverlay to true');
+                      // Use the store's set function directly to ensure the update works
+                      set((state) => ({
+                        processingState: {
+                          ...state.processingState,
+                          showRegionOverlay: true
+                        }
+                      }));
+                    }
                   }
                 }
               }
@@ -615,12 +698,7 @@ export const useAppStore = create<AppStore>()(
             // Automatically switch to processed image view to show the generated text
             setImageDisplayMode('processed');
             // Hide region overlay by default after text generation to show clean result
-            set(state => ({
-              processingState: {
-                ...state.processingState,
-                showRegionOverlay: false
-              }
-            }));
+            setShowRegionOverlay(false);
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Failed to generate text';
             setError(errorMessage);
@@ -1247,14 +1325,14 @@ export const useAppStore = create<AppStore>()(
         },
 
         // Undo system actions
-        undoLastCommand: () => {
+        undoLastCommand: async () => {
           const state = get();
           const { processingState } = state;
           const isOcrMode = processingState.displayMode === 'original';
           
           if (isOcrMode && state.undoState.ocrCurrentIndex >= 0) {
             const command = state.undoState.ocrHistory[state.undoState.ocrCurrentIndex];
-            command.undo();
+            await command.undo();
             
             set((prevState) => ({
               undoState: {
@@ -1264,7 +1342,7 @@ export const useAppStore = create<AppStore>()(
             }));
           } else if (!isOcrMode && state.undoState.processedCurrentIndex >= 0) {
             const command = state.undoState.processedHistory[state.undoState.processedCurrentIndex];
-            command.undo();
+            await command.undo();
             
             set((prevState) => ({
               undoState: {

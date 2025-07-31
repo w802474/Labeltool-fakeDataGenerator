@@ -16,7 +16,7 @@ import { Toast } from '@/components/ui/Toast';
 import { EditableText } from '@/components/EditableText';
 
 function App() {
-  const { currentSession, error, setError, canvasState, setSelectedRegion, shouldAutoTriggerUpload, setShouldAutoTriggerUpload, updateTextRegion, updateTextRegionWithUndo, processingState, getCurrentDisplayRegions, addTextRegion } = useAppStore();
+  const { currentSession, error, setError, canvasState, setSelectedRegion, shouldAutoTriggerUpload, setShouldAutoTriggerUpload, updateTextRegion, updateTextRegionWithUndo, processingState, getCurrentDisplayRegions, addTextRegion, removeTextRegion } = useAppStore();
   
   // Initialize keyboard shortcuts
   useKeyboardShortcuts();
@@ -180,13 +180,33 @@ function App() {
                     <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
                       <div className="flex items-center justify-between mb-2">
                         <h3 className="font-semibold text-gray-900 dark:text-gray-100">Text Regions ({getCurrentDisplayRegions().length})</h3>
-                        <button
-                          onClick={handleAddRegion}
-                          className="w-6 h-6 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold flex items-center justify-center transition-colors"
-                          title="Add new text region"
-                        >
-                          +
-                        </button>
+                        <div className="flex items-center space-x-2">
+                          {/* Delete selected region button */}
+                          <button
+                            onClick={() => {
+                              if (canvasState.selectedRegionId) {
+                                const selectedId = canvasState.selectedRegionId;
+                                removeTextRegion(selectedId);
+                                setSelectedRegion(null);
+                              }
+                            }}
+                            className={`w-6 h-6 rounded bg-red-600 hover:bg-red-700 text-white text-sm font-bold flex items-center justify-center transition-colors ${!canvasState.selectedRegionId ? 'invisible' : ''}`}
+                            title="Delete selected region"
+                            disabled={!canvasState.selectedRegionId}
+                          >
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                          {/* Add new region button */}
+                          <button
+                            onClick={handleAddRegion}
+                            className="w-6 h-6 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold flex items-center justify-center transition-colors"
+                            title="Add new text region"
+                          >
+                            +
+                          </button>
+                        </div>
                       </div>
                     <div className="space-y-2 max-h-80 overflow-y-auto p-2" id="text-regions-list">
                       {getCurrentDisplayRegions().length === 0 ? (

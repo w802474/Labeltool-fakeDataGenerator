@@ -150,7 +150,9 @@ export const createGenerateTextCommand = (
   undo: () => {
     restoreSessionFunction({
       processed_image: oldProcessedImage,
-      processed_text_regions: oldProcessedRegions
+      processed_text_regions: oldProcessedRegions,
+      keepProcessedMode: true, // Signal to maintain processed mode
+      showRegionOverlay: true // Always show regions after undoing Generate Text
     });
   }
 });

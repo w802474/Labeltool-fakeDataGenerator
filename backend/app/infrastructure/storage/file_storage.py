@@ -483,6 +483,18 @@ class FileStorageService:
             logger.error(f"Failed to save text regions CSV for image {image_id}: {e}")
             raise IOError(f"Cannot save CSV file: {str(e)}")
     
+    def get_export_path(self, filename: str) -> Path:
+        """
+        Get the full path to an exported file.
+        
+        Args:
+            filename: Name of the exported file
+            
+        Returns:
+            Path object to the exported file
+        """
+        return self.exports_dir / filename
+    
     def get_exported_files(self, session_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Get list of exported files, optionally filtered by session ID.

@@ -7,7 +7,7 @@ export interface KeyboardShortcut {
   metaKey?: boolean;
   shiftKey?: boolean;
   altKey?: boolean;
-  action: () => void;
+  action: () => void | Promise<void>;
   description: string;
 }
 
@@ -36,9 +36,9 @@ export const useKeyboardShortcuts = () => {
     {
       key: 'z',
       ctrlKey: true,
-      action: () => {
+      action: async () => {
         if (canUndo()) {
-          undoLastCommand();
+          await undoLastCommand();
         }
       },
       description: 'Undo last operation (Ctrl+Z)',
@@ -46,9 +46,9 @@ export const useKeyboardShortcuts = () => {
     {
       key: 'z',
       metaKey: true, // Command key on macOS
-      action: () => {
+      action: async () => {
         if (canUndo()) {
-          undoLastCommand();
+          await undoLastCommand();
         }
       },
       description: 'Undo last operation (Cmd+Z)',

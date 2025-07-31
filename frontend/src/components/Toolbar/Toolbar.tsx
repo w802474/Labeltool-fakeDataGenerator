@@ -36,6 +36,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showConfirm, showToast, showEr
     isLoading,
     processTextRemoval,
     downloadResult,
+    downloadRegionsCSV,
     deleteSession,
     updateTextRegions,
     removeTextRegion,
@@ -61,18 +62,30 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showConfirm, showToast, showEr
   const canProcess = 
     (currentSession.status === 'detected' || currentSession.status === 'editing') &&
     processingState.displayMode === 'original';
-  const canDownload = currentSession.status === 'completed' || currentSession.status === 'generated';
   const hasRegions = currentSession.text_regions.length > 0;
   
   // hasProcessedImage should be true if we have processed image, regardless of current status
   // This allows switching back to processed view even after editing OCR regions
   const hasProcessedImage = currentSession.processed_image !== null && currentSession.processed_image !== undefined;
   
+  // Can download only when in processed mode and have processed image
+  const canDownload = (currentSession.status === 'completed' || currentSession.status === 'generated') && 
+                      processingState.displayMode === 'processed' && 
+                      hasProcessedImage;
+  
   // Get current display regions for various operations
   const currentDisplayRegions = getCurrentDisplayRegions();
   
   // Check for user input text from the correct regions based on display mode
   const hasUserInputText = currentDisplayRegions.some(region => region.user_input_text && region.user_input_text.trim().length > 0);
+  
+  // Generate Text button should only be visible when:
+  // 1. We have processed image
+  // 2. We have user input text
+  // 3. We are in processed mode
+  const shouldShowGenerateTextButton = hasUserInputText && 
+                                       hasProcessedImage && 
+                                       processingState.displayMode === 'processed';
 
   const handleProcessing = async () => {
     try {
@@ -106,18 +119,25 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showConfirm, showToast, showEr
     try {
       const regionsToSave = getCurrentDisplayRegions();
       console.log('Saving regions for session:', currentSession.id);
+      
+      // Save regions to backend with CSV export
       await updateTextRegions(regionsToSave, 'auto', true); // Explicitly export CSV
       console.log('Regions saved successfully');
       
+      // Automatically download the CSV file
+      await downloadRegionsCSV();
+      console.log('CSV downloaded successfully');
+      
       // Show success toast
-      showToast?.(`Successfully saved ${regionsToSave.length} text regions to CSV file.`);
+      showToast?.(`Successfully saved and downloaded ${regionsToSave.length} text regions as CSV file.`);
     } catch (error) {
-      console.error('Failed to save regions:', error);
+      console.error('Failed to save and download regions:', error);
       
       // Show error toast
-      showErrorToast?.('Failed to save text regions to CSV file. Please try again.');
+      showErrorToast?.('Failed to save and download text regions CSV file. Please try again.');
     }
   };
+
 
   const handleToggleImageMode = () => {
     if (hasProcessedImage) {
@@ -127,7 +147,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showConfirm, showToast, showEr
   };
 
   const handleToggleRegionOverlay = () => {
-    setShowRegionOverlay(!processingState.showRegionOverlay);
+    const newShowOverlay = !processingState.showRegionOverlay;
+    setShowRegionOverlay(newShowOverlay);
+    
+    // If hiding regions, clear any selected region
+    if (!newShowOverlay) {
+      setSelectedRegion(null);
+    }
   };
 
   const handleFitToView = () => {
@@ -167,9 +193,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showConfirm, showToast, showEr
   };
 
 
-  const handleUndo = () => {
+  const handleUndo = async () => {
     try {
-      undoLastCommand();
+      await undoLastCommand();
     } catch (error) {
       console.error('Undo failed:', error);
       showErrorToast?.('Undo failed. Please try again.');
@@ -178,7 +204,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showConfirm, showToast, showEr
 
   return (
     <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
-      <div className="flex items-center justify-between p-3">
+      <div className="relative flex items-center justify-between p-3">
         {/* Left Group - File Actions */}
         <div className="flex items-center space-x-2">
           <Button
@@ -201,25 +227,25 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showConfirm, showToast, showEr
               onClick={handleSaveRegions}
               disabled={isLoading || !hasRegions}
               icon={<Save className="h-4 w-4" />}
+              title="Save regions and download as CSV file"
             >
               Save Regions
             </Button>
           )}
         </div>
 
-        {/* Center Group - Canvas Controls */}
-        <div className="flex items-center space-x-2">
-          {/* Undo button - only show when there are operations to undo */}
-          {canUndo() && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleUndo}
-              title="Undo last operation (Ctrl+Z)"
-              icon={<Undo2 className="h-4 w-4" />}
-              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900"
-            />
-          )}
+        {/* Center Group - Canvas Controls (absolutely positioned at center) */}
+        <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center space-x-2">
+          {/* Undo button - use visibility instead of conditional rendering for stable layout */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleUndo}
+            title="Undo last operation (Ctrl+Z)"
+            icon={<Undo2 className="h-4 w-4" />}
+            className={`text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900 ${!canUndo() ? 'invisible' : ''}`}
+            disabled={!canUndo()}
+          />
           
           <div className="flex items-center space-x-1 bg-gray-50 dark:bg-gray-800 rounded-md p-1">
             <Button
@@ -257,60 +283,43 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showConfirm, showToast, showEr
             icon={<Maximize2 className="h-4 w-4" />}
           />
 
-          {/* iOS-style toggle switch for image mode */}
-          {hasProcessedImage && (
-            <button
-              onClick={handleToggleImageMode}
-              title={processingState.displayMode === 'original' ? "Switch to Processed Image" : "Switch to Original Image"}
+          {/* iOS-style toggle switch for image mode - use visibility for stable layout */}
+          <button
+            onClick={handleToggleImageMode}
+            title={processingState.displayMode === 'original' ? "Switch to Processed Image" : "Switch to Original Image"}
+            className={clsx(
+              "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2",
+              processingState.displayMode === 'processed' 
+                ? "bg-blue-600" 
+                : "bg-gray-200 dark:bg-gray-700",
+              !hasProcessedImage && "invisible"
+            )}
+            disabled={!hasProcessedImage}
+          >
+            <span
               className={clsx(
-                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2",
+                "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
                 processingState.displayMode === 'processed' 
-                  ? "bg-blue-600" 
-                  : "bg-gray-200 dark:bg-gray-700"
-              )}
-            >
-              <span
-                className={clsx(
-                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                  processingState.displayMode === 'processed' 
-                    ? "translate-x-6" 
-                    : "translate-x-1"
-                )}
-              />
-            </button>
-          )}
-
-          {/* Region overlay toggle button - only show when viewing processed image */}
-          {hasProcessedImage && processingState.displayMode === 'processed' && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleToggleRegionOverlay}
-              title={processingState.showRegionOverlay ? "Hide Text Regions" : "Show Text Regions on Processed Image"}
-              icon={processingState.showRegionOverlay ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              className={clsx(
-                processingState.showRegionOverlay && "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
+                  ? "translate-x-6" 
+                  : "translate-x-1"
               )}
             />
-          )}
+          </button>
 
-          {canvasState.selectedRegionId && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                // Remove selected region using the store's removeTextRegion method
-                const selectedId = canvasState.selectedRegionId;
-                if (selectedId) {
-                  removeTextRegion(selectedId);
-                  setSelectedRegion(null);
-                }
-              }}
-              title="Delete Selected Region (Delete)"
-              icon={<Trash2 className="h-4 w-4" />}
-              className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900"
-            />
-          )}
+          {/* Region overlay toggle button - use visibility for stable layout */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleToggleRegionOverlay}
+            title={processingState.showRegionOverlay ? "Hide Text Regions" : "Show Text Regions on Processed Image"}
+            icon={processingState.showRegionOverlay ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            className={clsx(
+              processingState.showRegionOverlay && "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
+              !(hasProcessedImage && processingState.displayMode === 'processed') && "invisible"
+            )}
+            disabled={!(hasProcessedImage && processingState.displayMode === 'processed')}
+          />
+
         </div>
 
         {/* Right Group - Processing Actions */}
@@ -328,7 +337,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showConfirm, showToast, showEr
             {processingState.isProcessing ? "Processing" : "Process"}
           </Button>
 
-          {hasUserInputText && hasProcessedImage && (
+          {shouldShowGenerateTextButton && (
             <Button
               variant="outline"
               size="sm"
@@ -337,7 +346,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showConfirm, showToast, showEr
               icon={<Type className="h-4 w-4" />}
               title="Generate text in regions"
             >
-              Generate Text
+              Generate
             </Button>
           )}
 

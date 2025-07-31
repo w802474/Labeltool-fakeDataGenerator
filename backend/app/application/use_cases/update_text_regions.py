@@ -268,16 +268,13 @@ class UpdateTextRegionsUseCase:
             if not region_validation['valid']:
                 issues.extend([f"Region {i}: {issue}" for issue in region_validation['issues']])
         
-        # Check for excessive overlaps
-        overlap_count = self._count_overlapping_regions(regions)
-        if overlap_count > len(regions) * 0.3:  # More than 30% overlapping
-            issues.append(f"Too many overlapping regions: {overlap_count}")
+        # Note: Overlapping regions are normal for OCR results and text generation
+        # No overlap validation needed as users may intentionally create overlapping regions
         
         return {
             'valid': len(issues) == 0,
             'issues': issues,
-            'region_count': len(regions),
-            'overlap_count': overlap_count
+            'region_count': len(regions)
         }
     
     def _validate_single_region(
@@ -367,31 +364,6 @@ class UpdateTextRegionsUseCase:
         return (x_change > threshold or y_change > threshold or 
                 width_change > threshold or height_change > threshold or
                 old_region.is_selected != new_region.is_selected)
-    
-    def _count_overlapping_regions(self, regions: List[TextRegionDTO]) -> int:
-        """Count the number of overlapping region pairs."""
-        overlap_count = 0
-        
-        for i, region1 in enumerate(regions):
-            for region2 in regions[i+1:]:
-                # Create Rectangle objects for overlap checking
-                rect1 = Rectangle(
-                    x=region1.bounding_box.x,
-                    y=region1.bounding_box.y,
-                    width=region1.bounding_box.width,
-                    height=region1.bounding_box.height
-                )
-                rect2 = Rectangle(
-                    x=region2.bounding_box.x,
-                    y=region2.bounding_box.y,
-                    width=region2.bounding_box.width,
-                    height=region2.bounding_box.height
-                )
-                
-                if rect1.overlaps_with(rect2):
-                    overlap_count += 1
-        
-        return overlap_count
     
     async def _export_regions_to_csv(self, session: LabelSession, regions: List[TextRegion]) -> str:
         """
