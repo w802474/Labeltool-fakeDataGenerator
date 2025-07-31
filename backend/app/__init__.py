@@ -1,0 +1,1 @@
+"""LabelTool backend application."""
