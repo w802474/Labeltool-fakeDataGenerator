@@ -69,6 +69,7 @@ class UpdateTextRegionsUseCase:
                 # Update processed regions
                 logger.info("Updating processed text regions")
                 
+                
                 # Initialize processed regions if they don't exist
                 if session.processed_text_regions is None:
                     session.initialize_processed_regions()
@@ -231,7 +232,7 @@ class UpdateTextRegionsUseCase:
             )
         
         # Create TextRegion
-        return TextRegion(
+        text_region = TextRegion(
             id=region_dto.id,
             bounding_box=bounding_box,
             confidence=region_dto.confidence,
@@ -243,8 +244,17 @@ class UpdateTextRegionsUseCase:
             user_input_text=region_dto.user_input_text,
             font_properties=region_dto.font_properties,
             original_box_size=original_box_size,
-            is_size_modified=region_dto.is_size_modified
+            is_size_modified=region_dto.is_size_modified,
+            text_category=getattr(region_dto, 'text_category', None),
+            category_config=getattr(region_dto, 'category_config', None)
         )
+        
+        # If classification data is missing but we have text, re-classify
+        if not text_region.text_category and text_region.original_text:
+            from app.infrastructure.text_classification.japanese_text_classifier import JapaneseTextClassifier
+            JapaneseTextClassifier.add_classification_to_text_region(text_region)
+        
+        return text_region
     
     def _validate_regions(
         self, 

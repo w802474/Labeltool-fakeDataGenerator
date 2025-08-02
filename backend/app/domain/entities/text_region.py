@@ -23,6 +23,8 @@ class TextRegion:
     font_properties: Optional[Dict[str, Any]] = None  # New: Estimated font properties
     original_box_size: Optional[Rectangle] = None  # Original bounding box size for scaling calculations
     is_size_modified: bool = False  # Whether the user has modified the box size
+    text_category: Optional[str] = None  # Text classification category
+    category_config: Optional[Dict[str, Any]] = None  # Category color and display config
     
     def __post_init__(self):
         """Validate text region properties."""
@@ -116,5 +118,7 @@ class TextRegion:
             'original_text': self.original_text,
             'edited_text': self.edited_text,
             'user_input_text': self.user_input_text,
-            'font_properties': self.font_properties
+            'font_properties': self.font_properties,
+            'text_category': self.text_category,
+            'category_config': self.category_config
         }

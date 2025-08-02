@@ -148,12 +148,12 @@ class LabelSession:
         return copy.deepcopy(self.text_regions)
     
     def initialize_processed_regions(self, force_reinitialize: bool = False) -> None:
-        """Initialize processed_text_regions as copies of OCR regions."""
+        """Initialize processed_text_regions as copies of OCR regions with preserved classification."""
         if self.processed_text_regions is None or force_reinitialize:
             import copy
             self.processed_text_regions = copy.deepcopy(self.text_regions)
             
-            # Prepare regions for processed mode
+            # Prepare regions for processed mode while preserving classification
             for region in self.processed_text_regions:
                 if region.edited_text and region.edited_text.strip():
                     # If user edited the text in OCR mode, move edited_text to original_text (as placeholder)
@@ -163,6 +163,13 @@ class LabelSession:
                 else:
                     # For regular OCR regions, keep original_text as placeholder and clear user_input_text
                     region.user_input_text = ""
+                
+                # Ensure classification data is preserved
+                # If classification data is missing, re-classify based on original_text
+                if not hasattr(region, 'text_category') or not region.text_category:
+                    if region.original_text:
+                        from app.infrastructure.text_classification.japanese_text_classifier import JapaneseTextClassifier
+                        JapaneseTextClassifier.add_classification_to_text_region(region)
             
             self.updated_at = datetime.now()
     

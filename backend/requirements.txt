@@ -13,13 +13,14 @@ paddlepaddle
 opencv-python
 Pillow==9.5.0
 
-# IOPaint for advanced text inpainting and removal
-iopaint==1.6.0
-huggingface_hub>=0.25.0,<0.35.0
+# IOPaint functionality now provided by separate microservice
 
 # HTTP client and async file operations
 aiohttp
 aiofiles
+
+# WebSocket support for real-time progress
+websockets>=11.0.0
 requests
 
 # Utilities and configuration

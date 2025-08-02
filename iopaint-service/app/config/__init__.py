@@ -1,0 +1,1 @@
+"""IOPaint service config package."""

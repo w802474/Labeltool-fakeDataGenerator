@@ -18,6 +18,7 @@ sys.path.insert(0, str(current_dir))
 
 from app.config.settings import settings
 from app.infrastructure.api.routes import router
+from app.infrastructure.api.websocket_routes import router as websocket_router
 
 
 def configure_logging():
@@ -67,6 +68,7 @@ def create_app() -> FastAPI:
     
     # Add routes
     app.include_router(router)
+    app.include_router(websocket_router)
     
     # Add static file serving for frontend (in production)
     if os.path.exists("static"):
@@ -203,12 +205,33 @@ def setup_events(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to create directories: {e}")
         
+        # Connect to IOPaint WebSocket service
+        try:
+            from app.websocket.iopaint_client import iopaint_ws_client
+            logger.info("🔗 Connecting to IOPaint WebSocket service...")
+            connected = await iopaint_ws_client.connect()
+            if connected:
+                logger.info("✅ Connected to IOPaint WebSocket service")
+            else:
+                logger.warning("⚠️ Failed to connect to IOPaint WebSocket service - will retry on demand")
+        except Exception as e:
+            logger.warning(f"⚠️ Error connecting to IOPaint WebSocket service: {e}")
+        
         logger.info("LabelTool API startup completed")
     
     @app.on_event("shutdown")
     async def shutdown_event():
         """Application shutdown event."""
         logger.info("Shutting down LabelTool API...")
+        
+        # Disconnect from IOPaint WebSocket service
+        try:
+            from app.websocket.iopaint_client import iopaint_ws_client
+            logger.info("🔌 Disconnecting from IOPaint WebSocket service...")
+            await iopaint_ws_client.disconnect()
+            logger.info("✅ Disconnected from IOPaint WebSocket service")
+        except Exception as e:
+            logger.warning(f"⚠️ Error disconnecting from IOPaint WebSocket service: {e}")
         
         # Cleanup temporary files
         try:

@@ -1,22 +1,24 @@
 """FastAPI routes for LabelTool API."""
+import base64
 import os
 from datetime import datetime
 from typing import Dict, List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse, JSONResponse
 from loguru import logger
 
 # Import infrastructure services
 from app.infrastructure.ocr.paddle_ocr_service import PaddleOCRService
-from app.infrastructure.image_processing.iopaint_service import IOPaintService
+from app.infrastructure.clients.iopaint_client import IOPaintClient
 from app.infrastructure.storage.file_storage import FileStorageService
+from app.config.settings import settings
 
 # Import application use cases
 from app.application.use_cases.detect_text_regions import DetectTextRegionsUseCase
 from app.application.use_cases.update_text_regions import UpdateTextRegionsUseCase
-from app.application.use_cases.process_text_removal import ProcessTextRemovalUseCase
+from app.application.use_cases.process_text_removal_async import ProcessTextRemovalAsyncUseCase
 from app.application.use_cases.generate_text_in_regions import GenerateTextInRegionsUseCase
 
 # Import API models
@@ -26,7 +28,6 @@ from app.infrastructure.api.models import (
     TextRegionsResponse,
     ProcessingStatusResponse,
     ProcessingResultResponse,
-    EstimateResponse,
     HealthCheckResponse,
     ServiceInfoResponse,
     ErrorResponse,
@@ -35,12 +36,15 @@ from app.infrastructure.api.models import (
     SessionNotFoundError,
     ProcessingError,
     UpdateTextRegionsRequest,
-    ProcessTextRemovalRequest,
     RestoreSessionRequest,
     GenerateTextRequest,
     GenerateTextResponse,
     GenerateTextPreviewResponse,
-    TextGenerationError
+    TextGenerationError,
+    ProcessTextRemovalAsyncRequest,
+    ProcessTextRemovalAsyncResponse,
+    TaskStatusResponse,
+    TaskCancelResponse
 )
 
 # Import DTOs
@@ -49,6 +53,7 @@ from app.application.dto.session_dto import LabelSessionDTO, TextRegionDTO
 # Domain imports
 from app.domain.entities.label_session import LabelSession
 from app.domain.value_objects.session_status import SessionStatus
+from app.domain.value_objects.image_file import ImageFile
 
 
 # Global session storage (in production, use Redis or database)
@@ -57,6 +62,19 @@ _sessions: Dict[str, LabelSession] = {}
 # Global OCR service instance (singleton)
 _ocr_service: Optional[PaddleOCRService] = None
 
+# Global async processing use case (singleton for task management)
+_async_processor: Optional[ProcessTextRemovalAsyncUseCase] = None
+
+
+def get_global_async_processor() -> ProcessTextRemovalAsyncUseCase:
+    """Get or create global async processor instance."""
+    global _async_processor
+    if _async_processor is None:
+        iopaint_client = get_inpainting_service()
+        file_service = get_file_service()
+        _async_processor = ProcessTextRemovalAsyncUseCase(iopaint_client, file_service)
+    return _async_processor
+
 
 def get_ocr_service() -> PaddleOCRService:
     """Dependency to get OCR service instance using official best practices."""
@@ -64,13 +82,13 @@ def get_ocr_service() -> PaddleOCRService:
     return PaddleOCRService()
 
 
-def get_inpainting_service() -> IOPaintService:
-    """Dependency to get IOPaint inpainting service instance."""
+def get_inpainting_service() -> IOPaintClient:
+    """Dependency to get IOPaint client instance."""
     from app.config.settings import settings
-    return IOPaintService(
-        port=getattr(settings, 'iopaint_port', 8081),
-        model=getattr(settings, 'iopaint_model', 'lama'),
-        device=getattr(settings, 'iopaint_device', 'cpu')
+    base_url = f"http://iopaint-service:{getattr(settings, 'iopaint_port', 8081)}"
+    return IOPaintClient(
+        base_url=base_url,
+        timeout=300  # 5 minutes timeout
     )
 
 
@@ -94,12 +112,12 @@ def get_update_use_case() -> UpdateTextRegionsUseCase:
     return UpdateTextRegionsUseCase()
 
 
-def get_process_use_case(
-    inpainting_service: IOPaintService = Depends(get_inpainting_service),
+def get_async_process_use_case(
+    inpainting_service: IOPaintClient = Depends(get_inpainting_service),
     file_service: FileStorageService = Depends(get_file_service)
-) -> ProcessTextRemovalUseCase:
-    """Dependency to get process text removal use case."""
-    return ProcessTextRemovalUseCase(inpainting_service, file_service)
+) -> ProcessTextRemovalAsyncUseCase:
+    """Dependency to get async process text removal use case."""
+    return ProcessTextRemovalAsyncUseCase(inpainting_service, file_service)
 
 
 def convert_session_to_dto(session: LabelSession) -> LabelSessionDTO:
@@ -169,13 +187,16 @@ def convert_session_to_dto(session: LabelSession) -> LabelSessionDTO:
             user_input_text=getattr(region, 'user_input_text', None),
             font_properties=getattr(region, 'font_properties', None),
             original_box_size=original_box_size_dto,
-            is_size_modified=getattr(region, 'is_size_modified', False)
+            is_size_modified=getattr(region, 'is_size_modified', False),
+            text_category=getattr(region, 'text_category', None),
+            category_config=getattr(region, 'category_config', None)
         )
         text_regions_dto.append(region_dto)
     
     # Convert processed text regions if they exist
     processed_text_regions_dto = None
     if session.processed_text_regions:
+        
         processed_text_regions_dto = []
         for region in session.processed_text_regions:
             # Convert original_box_size if it exists
@@ -207,7 +228,9 @@ def convert_session_to_dto(session: LabelSession) -> LabelSessionDTO:
                 user_input_text=getattr(region, 'user_input_text', None),
                 font_properties=getattr(region, 'font_properties', None),
                 original_box_size=original_box_size_dto,
-                is_size_modified=getattr(region, 'is_size_modified', False)
+                is_size_modified=getattr(region, 'is_size_modified', False),
+                text_category=getattr(region, 'text_category', None),
+                category_config=getattr(region, 'category_config', None)
             )
             processed_text_regions_dto.append(region_dto)
     
@@ -354,161 +377,8 @@ async def update_text_regions(
         )
 
 
-@router.post(
-    "/sessions/{session_id}/process",
-    response_model=SessionDetailResponse,
-    summary="Process text removal",
-    description="Start text removal processing for the session"
-)
-async def process_text_removal(
-    session_id: str,
-    request: ProcessTextRemovalRequest = ProcessTextRemovalRequest(),
-    process_use_case: ProcessTextRemovalUseCase = Depends(get_process_use_case)
-):
-    """Process text removal for a session."""
-    try:
-        session = get_session_or_404(session_id)
-        
-        # CRITICAL: Always use regions from request if provided to avoid coordinate duplication
-        if request.regions:
-            logger.info(f"🔄 REPLACING session {session_id} regions with {len(request.regions)} regions from request")
-            
-            # DETECT DUPLICATE REGIONS: Check for regions with same bounding box or overlapping areas
-            region_positions = {}
-            duplicate_positions = []
-            
-            for i, region_dto in enumerate(request.regions):
-                bbox_key = f"{region_dto.bounding_box.x:.1f},{region_dto.bounding_box.y:.1f},{region_dto.bounding_box.width:.1f}x{region_dto.bounding_box.height:.1f}"
-                
-                if bbox_key in region_positions:
-                    duplicate_positions.append({
-                        'position': bbox_key,
-                        'first_region_id': region_positions[bbox_key]['id'], 
-                        'first_user_modified': region_positions[bbox_key]['user_modified'],
-                        'duplicate_region_id': region_dto.id,
-                        'duplicate_user_modified': region_dto.is_user_modified,
-                        'index1': region_positions[bbox_key]['index'],
-                        'index2': i + 1
-                    })
-                else:
-                    region_positions[bbox_key] = {
-                        'id': region_dto.id,
-                        'user_modified': region_dto.is_user_modified,
-                        'index': i + 1
-                    }
-            
-            if duplicate_positions:
-                logger.warning(f"⚠️ FOUND {len(duplicate_positions)} DUPLICATE POSITIONS:")
-                for dup in duplicate_positions:
-                    logger.warning(
-                        f"  Position {dup['position']}: "
-                        f"Region{dup['index1']}(id={dup['first_region_id'][:8]}, modified={dup['first_user_modified']}) "
-                        f"vs Region{dup['index2']}(id={dup['duplicate_region_id'][:8]}, modified={dup['duplicate_user_modified']})"
-                    )
-            else:
-                logger.info("✅ No duplicate positions detected in request")
-            # Convert DTOs to domain objects and update session
-            from app.domain.entities.text_region import TextRegion
-            from app.domain.value_objects.rectangle import Rectangle
-            from app.domain.value_objects.point import Point
-            
-            # Log region count for comparison
-            logger.info(f"📋 Original session had {len(session.text_regions)} regions")
-            
-            updated_regions = []
-            for i, region_dto in enumerate(request.regions):
-                
-                corners = [Point(p.x, p.y) for p in region_dto.corners]
-                bounding_box = Rectangle(
-                    region_dto.bounding_box.x,
-                    region_dto.bounding_box.y,
-                    region_dto.bounding_box.width,
-                    region_dto.bounding_box.height
-                )
-                
-                region = TextRegion(
-                    id=region_dto.id,
-                    bounding_box=bounding_box,
-                    confidence=region_dto.confidence,
-                    corners=corners,
-                    is_selected=region_dto.is_selected,
-                    is_user_modified=region_dto.is_user_modified,
-                    original_text=region_dto.original_text,
-                    edited_text=region_dto.edited_text
-                )
-                updated_regions.append(region)
-            
-            # CRITICAL: Completely replace session regions, do not merge
-            session.text_regions = updated_regions
-            logger.info(f"🔥 Session {session_id} regions COMPLETELY REPLACED with {len(updated_regions)} new regions")
-            
-            # CRITICAL: Immediately update session in global storage
-            _sessions[session_id] = session
-            logger.info(f"✅ Session {session_id} updated in global storage")
-            
-            # VERIFY: Check what was actually stored
-            stored_session = _sessions[session_id]
-            logger.info(f"🔍 VERIFICATION: Stored session has {len(stored_session.text_regions)} regions")
-            
-            # Check specifically for user-modified regions
-            user_modified_count = sum(1 for r in stored_session.text_regions if r.is_user_modified)
-            logger.info(f"🔍 VERIFICATION: Found {user_modified_count} user-modified regions in stored session")
-        else:
-            logger.warning(f"⚠️ No regions provided in request, using existing {len(session.text_regions)} regions from session")
-        
-        # CRITICAL: Ensure we use the updated session from storage, not the original one
-        updated_session = _sessions[session_id]  # Get the updated session
-        logger.info(f"🎯 FINAL: Updated session {session_id} will process {len(updated_session.text_regions)} regions")
-        
-        # Show ALL user-modified regions in final session
-        final_user_modified = [r for r in updated_session.text_regions if r.is_user_modified]
-        if final_user_modified:
-            logger.info(f"🎯 FINAL: Found {len(final_user_modified)} user-modified regions")
-        
-        # Replace the original session variable with the updated one
-        session = updated_session
-        
-        # Validate session is ready for processing
-        validation = process_use_case.validate_processing_request(session, request.inpainting_method)
-        if not validation['valid']:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Session not ready for processing: {validation['issues']}"
-            )
-        
-        # Start IOPaint service if needed
-        if hasattr(process_use_case.inpainting_service, 'start_service'):
-            await process_use_case.inpainting_service.start_service()
-        
-        try:
-            # Execute processing
-            processed_session = await process_use_case.execute(
-                session,
-                inpainting_method=request.inpainting_method,
-                custom_radius=request.custom_radius
-            )
-        finally:
-            # Clean up IOPaint service if needed
-            if hasattr(process_use_case.inpainting_service, 'stop_service'):
-                await process_use_case.inpainting_service.stop_service()
-        
-        # Update stored session
-        _sessions[session_id] = processed_session
-        
-        logger.info(f"Completed text removal processing for session {session_id}")
-        
-        return SessionDetailResponse(
-            session=convert_session_to_dto(processed_session)
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to process text removal for session {session_id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process text removal: {str(e)}"
-        )
+# Removed deprecated synchronous processing endpoint
+# Use /process-async for better performance and real-time progress
 
 
 @router.get(
@@ -674,33 +544,6 @@ async def delete_session(
             detail=f"Failed to delete session: {str(e)}"
         )
 
-
-@router.get(
-    "/sessions/{session_id}/estimate",
-    response_model=EstimateResponse,
-    summary="Estimate processing time",
-    description="Get processing time estimate for the session"
-)
-async def estimate_processing_time(
-    session_id: str,
-    process_use_case: ProcessTextRemovalUseCase = Depends(get_process_use_case)
-):
-    """Get processing time estimate for a session."""
-    try:
-        session = get_session_or_404(session_id)
-        
-        estimate = await process_use_case.estimate_processing_time(session)
-        
-        return EstimateResponse(**estimate)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to estimate processing time for session {session_id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to estimate processing time: {str(e)}"
-        )
 
 
 @router.get(
@@ -976,3 +819,294 @@ async def restore_session_state(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
+
+
+# Async Processing Endpoints
+@router.post(
+    "/sessions/{session_id}/process-async",
+    response_model=ProcessTextRemovalAsyncResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Start async text removal processing",
+    description="Start async text removal processing with real-time WebSocket progress updates"
+)
+async def process_text_removal_async(
+    session_id: str,
+    request: ProcessTextRemovalAsyncRequest = ProcessTextRemovalAsyncRequest()
+):
+    """Start async text removal processing for a session."""
+    try:
+        session = get_session_or_404(session_id)
+        async_processor = get_global_async_processor()
+        
+        # Update session regions if provided
+        if request.regions:
+            logger.info(f"Updating session {session_id} with {len(request.regions)} regions from request")
+            
+            # Convert DTOs to domain objects
+            from app.domain.entities.text_region import TextRegion
+            from app.domain.value_objects.rectangle import Rectangle
+            from app.domain.value_objects.point import Point
+            
+            updated_regions = []
+            for region_dto in request.regions:
+                corners = [Point(p.x, p.y) for p in region_dto.corners]
+                bounding_box = Rectangle(
+                    region_dto.bounding_box.x,
+                    region_dto.bounding_box.y,
+                    region_dto.bounding_box.width,
+                    region_dto.bounding_box.height
+                )
+                
+                region = TextRegion(
+                    id=region_dto.id,
+                    bounding_box=bounding_box,
+                    confidence=region_dto.confidence,
+                    corners=corners,
+                    is_selected=region_dto.is_selected,
+                    is_user_modified=region_dto.is_user_modified,
+                    original_text=region_dto.original_text,
+                    edited_text=region_dto.edited_text,
+                    user_input_text=getattr(region_dto, 'user_input_text', None),
+                    font_properties=getattr(region_dto, 'font_properties', None),
+                    text_category=getattr(region_dto, 'text_category', None),
+                    category_config=getattr(region_dto, 'category_config', None)
+                )
+                updated_regions.append(region)
+            
+            session.text_regions = updated_regions
+            _sessions[session_id] = session
+        
+        # Validate session for async processing
+        validation = async_processor.validate_async_processing_request(
+            session, request.inpainting_method
+        )
+        if not validation['valid']:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Session not ready for async processing: {validation['issues']}"
+            )
+        
+        # Start async processing
+        task_info = await async_processor.start_async_processing(
+            session=session,
+            regions=session.text_regions,
+            inpainting_method=request.inpainting_method,
+            custom_radius=request.custom_radius,
+            task_id=request.task_id  # Pass unified task_id from frontend
+        )
+        
+        # Generate WebSocket URL
+        websocket_url = request.websocket_url or f"/api/v1/ws/progress/{task_info.task_id}"
+        
+        # Get processing estimate
+        estimate = await async_processor.estimate_processing_time(session)
+        
+        logger.info(f"Started async processing task {task_info.task_id} for session {session_id}")
+        
+        return ProcessTextRemovalAsyncResponse(
+            task_id=task_info.task_id,
+            session_id=session_id,
+            status=task_info.status,
+            message=task_info.message,
+            websocket_url=websocket_url,
+            estimated_duration=estimate.get('estimated_seconds')
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start async processing for session {session_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start async processing: {str(e)}"
+        )
+
+
+@router.get(
+    "/tasks/{task_id}/status",
+    response_model=TaskStatusResponse,
+    summary="Get async task status",
+    description="Get current status and progress of an async processing task"
+)
+async def get_task_status(task_id: str):
+    """Get status of an async processing task."""
+    try:
+        async_processor = get_global_async_processor()
+        task_info = async_processor.get_task_status(task_id)
+        
+        if not task_info:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Task {task_id} not found"
+            )
+        
+        return TaskStatusResponse(
+            task_id=task_info.task_id,
+            session_id=task_info.session_id,
+            status=task_info.status,
+            stage=task_info.stage,
+            progress=task_info.progress,
+            message=task_info.message,
+            started_at=task_info.started_at,
+            completed_at=task_info.completed_at,
+            error_message=task_info.error_message,
+            result=task_info.result
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get status for task {task_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get task status: {str(e)}"
+        )
+
+
+@router.post(
+    "/tasks/{task_id}/cancel",
+    response_model=TaskCancelResponse,
+    summary="Cancel async task",
+    description="Cancel an async processing task"
+)
+async def cancel_task(task_id: str):
+    """Cancel an async processing task."""
+    try:
+        async_processor = get_global_async_processor()
+        
+        cancelled = await async_processor.cancel_task(task_id)
+        
+        if not cancelled:
+            # Check if task exists but couldn't be cancelled
+            task_info = async_processor.get_task_status(task_id)
+            if not task_info:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Task {task_id} not found"
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Task {task_id} cannot be cancelled (status: {task_info.status})"
+                )
+        
+        return TaskCancelResponse(
+            task_id=task_id,
+            status="cancelled",
+            message="Task cancellation requested successfully"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to cancel task {task_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cancel task: {str(e)}"
+        )
+
+
+@router.post("/iopaint/callback/{task_id}")
+async def iopaint_callback(task_id: str, request: Request):
+    """
+    Receive processing results from IOPaint service.
+    
+    Args:
+        task_id: IOPaint task ID
+        request: Request containing processing results
+    """
+    from app.websocket.iopaint_client import iopaint_ws_client
+    from app.domain.value_objects.image_file import ImageFile, Dimensions
+    from app.domain.value_objects.session_status import SessionStatus
+    import base64
+    import os
+    
+    try:
+        # Parse callback data
+        callback_data = await request.json()
+        
+        logger.info(f"Received IOPaint callback for task {task_id}")
+        
+        # The task_id in the callback URL is actually the backend_task_id
+        backend_task_id = task_id
+        logger.info(f"Processing callback for backend task: {backend_task_id}")
+        
+        # Get async processor and task info
+        async_processor = get_global_async_processor()
+        task_info = async_processor.get_task_status(backend_task_id)
+        
+        if not task_info:
+            logger.warning(f"Backend task {backend_task_id} not found in async processor")
+            return {"status": "error", "message": "Backend task not found"}
+        
+        # Get session
+        session_id = task_info.session_id
+        if session_id not in _sessions:
+            logger.warning(f"Session {session_id} not found for callback")
+            return {"status": "error", "message": "Session not found"}
+        
+        session = _sessions[session_id]
+        
+        # Extract image data from callback
+        image_base64 = callback_data.get("image_data")
+        if not image_base64:
+            logger.error("No image data in IOPaint callback")
+            return {"status": "error", "message": "No image data provided"}
+        
+        # Decode and save processed image
+        try:
+            image_data = base64.b64decode(image_base64)
+            
+            # Save to processed directory
+            file_storage = FileStorageService(
+                upload_dir=settings.upload_dir,
+                processed_dir=settings.processed_dir
+            )
+            
+            processed_filename = f"processed_{session_id}.png"
+            processed_path = os.path.join(settings.processed_dir, processed_filename)
+            
+            with open(processed_path, 'wb') as f:
+                f.write(image_data)
+            
+            # Create processed image file object
+            from uuid import uuid4
+            processed_image = ImageFile(
+                id=str(uuid4()),
+                filename=processed_filename,
+                path=processed_path,
+                mime_type="image/png",
+                size=len(image_data),
+                dimensions=session.original_image.dimensions  # Use original dimensions for now
+            )
+            
+            # Update session with processed image
+            session.processed_image = processed_image
+            session.status = SessionStatus.COMPLETED
+            
+            # Update session in storage
+            _sessions[session_id] = session
+            
+            # Update task info in async processor
+            task_info.status = "completed"
+            task_info.stage = "completed"
+            task_info.progress = 100.0
+            task_info.message = "Processing completed successfully"
+            task_info.completed_at = datetime.now()
+            task_info.result = {
+                "processed_image_path": processed_path,
+                "processing_time": callback_data.get("processing_time", 0),
+                "regions_processed": callback_data.get("regions_processed", 0)
+            }
+            
+            logger.info(f"Successfully processed IOPaint callback for task {backend_task_id}")
+            
+            return {"status": "success", "message": "Callback processed successfully"}
+            
+        except Exception as e:
+            logger.error(f"Failed to process image data from callback: {e}")
+            return {"status": "error", "message": f"Failed to process image: {str(e)}"}
+            
+    except Exception as e:
+        logger.error(f"Error processing IOPaint callback for task {task_id}: {e}")
+        return {"status": "error", "message": f"Callback processing error: {str(e)}"}

@@ -2,7 +2,7 @@
 
 *[English](DOCKER.md) | [中文文档](DOCKER.zh-CN.md) | [日本語ドキュメント](DOCKER.ja.md)*
 
-This document describes how to use Docker to run the LabelTool project.
+This document describes how to use Docker to run the LabelTool project with **microservice architecture** (3 services: Frontend, Backend, IOPaint Service).
 
 ## 🚀 Quick Start
 
@@ -23,7 +23,7 @@ nano .env
 
 ### 3. Build and start services
 ```bash
-# Build and start all services (backend starts first, frontend waits for backend health check)
+# Build and start all 3 services (IOPaint → Backend → Frontend startup order)
 docker-compose up --build
 
 # Or run in background
@@ -31,22 +31,45 @@ docker-compose up --build -d
 ```
 
 ### 4. Access the application
-- Frontend: http://localhost:3000
-- Backend API docs: http://localhost:8000/docs
-- Backend API status: http://localhost:8000/
+- **Frontend**: http://localhost:3000 (User Interface)
+- **Backend API**: http://localhost:8000/docs (Main API Documentation)
+- **IOPaint Service**: http://localhost:8081/docs (Text Removal Service Documentation)
+- **Backend Status**: http://localhost:8000/ (API Health Status)
+- **IOPaint Status**: http://localhost:8081/api/v1/health (IOPaint Health Status)
 
-## 📋 Service Description
+## 📋 Microservice Architecture
 
-### Backend Service (labeltool-backend)
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Frontend      │    │    Backend      │    │ IOPaint Service│
+│   (React App)   │────│  (FastAPI)      │────│   (FastAPI)     │
+│   Port: 3000    │    │   Port: 8000    │    │   Port: 8081    │  
+│                 │    │                 │    │                 │
+│ - User Interface│    │ - OCR Detection │    │ - Text Removal  │
+│ - Canvas Editor │    │ - Session Mgmt  │    │ - LAMA Model    │
+│ - File Upload   │    │ - API Gateway   │    │ - Inpainting    │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+### 🎯 IOPaint Service (labeltool-iopaint)
+- **Port**: 8081
+- **Tech Stack**: Python 3.11 + FastAPI + IOPaint 1.6.0 + LAMA Model
+- **Function**: Advanced text inpainting and removal using AI
+- **Health Check**: ~60 seconds initialization (downloads LAMA model on first run)
+- **Dependencies**: None (fully independent service)
+
+### 🔧 Backend Service (labeltool-backend)
 - **Port**: 8000
-- **Tech Stack**: Python 3.11.13 + FastAPI + PaddleOCR
-- **Function**: Provides OCR text detection and image processing API
-- **Health Check**: Automatically checks service status, takes about 40 seconds to initialize after startup
+- **Tech Stack**: Python 3.11.13 + FastAPI + PaddleOCR + HTTP Client
+- **Function**: OCR text detection, session management, API orchestration
+- **Health Check**: ~40 seconds initialization
+- **Dependencies**: Requires IOPaint Service to be healthy
 
-### Frontend Service (labeltool-frontend)
+### 🎨 Frontend Service (labeltool-frontend)
 - **Port**: 3000
 - **Tech Stack**: React 18 + TypeScript + Nginx
-- **Function**: Provides user interface and image annotation functionality
+- **Function**: User interface and interactive canvas editing
+- **Dependencies**: Requires Backend Service to be healthy
 - **Dependencies**: Starts only after backend service health check passes
 
 ## 🔧 Docker Command Reference
@@ -75,12 +98,19 @@ docker-compose ps
 docker-compose logs
 
 # View specific service logs
-docker-compose logs backend
-docker-compose logs frontend
+docker-compose logs iopaint-service  # IOPaint service logs
+docker-compose logs backend          # Backend service logs
+docker-compose logs frontend         # Frontend service logs
+
+# Follow logs in real-time
+docker-compose logs -f iopaint-service
 ```
 
 ### Build services individually
 ```bash
+# Build IOPaint service only
+docker-compose build iopaint-service
+
 # Build backend only
 docker-compose build backend
 
@@ -94,6 +124,7 @@ docker-compose build frontend
 docker-compose restart
 
 # Restart specific service
+docker-compose restart iopaint-service
 docker-compose restart backend
 docker-compose restart frontend
 ```
@@ -102,10 +133,16 @@ docker-compose restart frontend
 
 The project uses Docker volumes to persist important data:
 
+### Backend Service Volumes
 - `backend_uploads`: Uploaded image files
 - `backend_processed`: Processed image files
 - `backend_exports`: Exported files
 - `backend_logs`: Application logs
+- `paddlex_cache`: PaddleOCR model cache
+
+### IOPaint Service Volumes
+- `huggingface_cache`: IOPaint LAMA model cache (~2GB)
+- `iopaint_temp`: Temporary processing files
 
 ### Volume management commands
 ```bash
@@ -113,7 +150,8 @@ The project uses Docker volumes to persist important data:
 docker volume ls
 
 # View specific volume details
-docker volume inspect labeltool_backend_uploads
+docker volume inspect labeltool-fakedatagenerator_backend_uploads
+docker volume inspect labeltool-fakedatagenerator_huggingface_cache
 
 # Remove unused volumes
 docker volume prune
@@ -155,30 +193,61 @@ PaddleOCR and image processing require substantial memory, ensure Docker has suf
 
 ### 3. Service Startup Failure
 ```bash
-# View detailed logs
+# View detailed logs for all services
+docker-compose logs -f iopaint-service
 docker-compose logs -f backend
 docker-compose logs -f frontend
 
 # Rebuild images
 docker-compose build --no-cache
+
+# Check service health status
+docker-compose ps
 ```
 
-### 4. Permission Issues
+### 4. IOPaint Service Issues
+```bash
+# Check IOPaint service logs
+docker-compose logs -f iopaint-service
+
+# Restart IOPaint service only
+docker-compose restart iopaint-service
+
+# Check IOPaint service health
+curl http://localhost:8081/api/v1/health
+```
+
+### 5. Permission Issues
 ```bash
 # Ensure correct directory permissions
 sudo chown -R $USER:$USER uploads processed exports logs
 ```
 
-### 5. Network Connection Issues
+### 6. Network Connection Issues
 ```bash
 # Check network connections
 docker network ls
-docker network inspect labeltool_labeltool-network
+docker network inspect labeltool-fakedatagenerator_labeltool-network
+
+# Test service connectivity
+curl http://localhost:3000  # Frontend
+curl http://localhost:8000/api/v1/health  # Backend
+curl http://localhost:8081/api/v1/health  # IOPaint Service
 ```
 
 ## 🔄 Development Mode
 
 If you need to modify code during development:
+
+### IOPaint Service Development
+```bash
+# Stop IOPaint service container
+docker-compose stop iopaint-service
+
+# Run IOPaint service locally for development
+cd iopaint-service
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8081
+```
 
 ### Backend Development
 ```bash
@@ -198,6 +267,18 @@ docker-compose stop frontend
 # Run frontend locally for development
 cd frontend
 npm run dev
+```
+
+### Development with Mixed Modes
+```bash
+# Run IOPaint and Backend in Docker, Frontend locally
+docker-compose up iopaint-service backend
+cd frontend && npm run dev
+
+# Run only IOPaint in Docker, Backend and Frontend locally
+docker-compose up iopaint-service
+cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+cd frontend && npm run dev
 ```
 
 ## 📊 Monitoring and Logs

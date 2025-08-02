@@ -8,6 +8,7 @@ import { TextRegion, Point, Rectangle } from '@/types';
 import { clsx } from 'clsx';
 import { Card } from '@/components/ui/Card';
 import { LaserScanAnimation } from '@/components/ui/LaserScanAnimation';
+import { TextClassificationLegend } from '@/components/ui/TextClassificationLegend';
 import { Loader2 } from 'lucide-react';
 import { 
   calculatePreviewFontSize, 
@@ -50,7 +51,8 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
     resizeRegionWithUndo,
     settings,
     processingState,
-    getCurrentDisplayRegions
+    getCurrentDisplayRegions,
+    currentTaskId
   } = useAppStore();
   const { 
     canvasRef, 
@@ -247,7 +249,7 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
 
     // Check if regions should be interactive before detecting clicks
     const shouldRegionsBeInteractive = (() => {
-      if (processingState.displayMode === 'original' || processingState.isProcessing) {
+      if (processingState.displayMode === 'original' || !!currentTaskId) {
         return true;
       }
       if (processingState.displayMode === 'processed') {
@@ -459,7 +461,7 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
 
     // Determine if regions should be interactive
     const shouldRegionsBeInteractive = (() => {
-      if (processingState.displayMode === 'original' || processingState.isProcessing) {
+      if (processingState.displayMode === 'original' || !!currentTaskId) {
         return true;
       }
       if (processingState.displayMode === 'processed') {
@@ -516,7 +518,7 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
 
     // Determine if regions should be interactive
     const shouldRegionsBeInteractive = (() => {
-      if (processingState.displayMode === 'original' || processingState.isProcessing) {
+      if (processingState.displayMode === 'original' || !!currentTaskId) {
         return true;
       }
       if (processingState.displayMode === 'processed') {
@@ -708,7 +710,7 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
     // Handle hover for text display (only if not dragging and regions should be interactive)
     if (!isDragging && !isImageDragging && !draggedRegionId) {
       const shouldRegionsBeInteractive = (() => {
-        if (processingState.displayMode === 'original' || processingState.isProcessing) {
+        if (processingState.displayMode === 'original' || !!currentTaskId) {
           return true;
         }
         if (processingState.displayMode === 'processed') {
@@ -864,7 +866,7 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
     // Determine if regions should be interactive based on display mode and overlay settings
     const shouldBeInteractive = (() => {
       // Always interactive in original mode or when processing
-      if (processingState.displayMode === 'original' || processingState.isProcessing) {
+      if (processingState.displayMode === 'original' || !!currentTaskId) {
         return true;
       }
       // In processed mode, only interactive if overlay is enabled
@@ -917,22 +919,32 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
       // Don't return null here - just warn, as the region might be valid but off-screen
     }
 
-    // Choose colors based on state
-    let fillColor, strokeColor;
+    // Choose colors based on state and text classification with enhanced contrast
+    let fillColor, strokeColor, strokeWidth;
     if (isSelected) {
-      fillColor = 'rgba(59, 130, 246, 0.2)';
+      fillColor = 'rgba(59, 130, 246, 0.25)';
       strokeColor = '#3b82f6';
+      strokeWidth = 3; // Thicker border for selected
+    } else if (region.category_config && region.category_config.color) {
+      // Use text classification color with standard visibility
+      const categoryColor = region.category_config.color;
+      const bgColor = region.category_config.bgColor;
+      fillColor = bgColor || `${categoryColor}25`; // Slightly more opaque for better visibility
+      strokeColor = categoryColor;
+      strokeWidth = 2; // Standard border for all classified regions
     } else if (isTextModified) {
       fillColor = 'rgba(249, 115, 22, 0.2)';
       strokeColor = '#f97316';
+      strokeWidth = 2;
     } else {
       fillColor = 'rgba(239, 68, 68, 0.2)';
       strokeColor = '#ef4444';
+      strokeWidth = 1; // Thinner border for unclassified
     }
 
     return (
       <React.Fragment key={region.id}>
-        {/* Main region rectangle */}
+        {/* Main region rectangle with enhanced styling */}
         <Rect
           x={screenBbox.x}
           y={screenBbox.y}
@@ -940,8 +952,8 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
           height={screenBbox.height}
           fill={fillColor}
           stroke={strokeColor}
-          strokeWidth={2}
-          dash={isSelected ? [] : isTextModified ? [3, 2] : [5, 5]}
+          strokeWidth={strokeWidth}
+          dash={isSelected ? [] : isTextModified ? [4, 2] : (region.category_config && region.text_category !== 'other') ? [] : [5, 5]}
           listening={shouldBeInteractive}
           onClick={shouldBeInteractive ? handleCanvasClick : undefined}
           onMouseDown={shouldBeInteractive ? handleMouseDown : undefined}
@@ -1160,7 +1172,7 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
             {/* Text regions - show based on display mode and overlay settings */}
             {(() => {
               // Always show in original mode or when processing
-              if (processingState.displayMode === 'original' || processingState.isProcessing) {
+              if (processingState.displayMode === 'original' || !!currentTaskId) {
                 return true;
               }
               // In processed mode, only show if overlay is enabled
@@ -1263,29 +1275,18 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
           )}
         </div>
 
-        {/* Instructions overlay - positioned within container bounds */}
-        <div className="absolute bg-black/80 text-white px-2 py-1 rounded text-xs z-10"
-             style={{
-               maxWidth: '180px',
-               bottom: '4px',
-               right: '4px',
-               fontSize: '10px'
-             }}>
-          <div>• Click regions to select</div>
-          <div>• Ctrl+Scroll to zoom</div>
-          <div>• Drag image to pan around</div>
-          <div>• Double-click to fit image</div>
-          <div>• Press Esc to deselect</div>
-          <div className="text-gray-300 mt-1 text-[10px]">Container: {actualContainerSize.width}×{actualContainerSize.height}</div>
+        {/* Text Classification Legend - positioned within container bounds */}
+        <div 
+          className="absolute"
+          style={{
+            bottom: '4px',
+            right: '4px',
+          }}
+        >
+          <TextClassificationLegend />
         </div>
 
-        {/* Laser scanning animation overlay */}
-        <LaserScanAnimation
-          isActive={processingState.isProcessing}
-          progress={processingState.progress?.progress || 0}
-          stage={processingState.progress?.stage || 'processing'}
-          className="rounded-lg"
-        />
+        {/* Progress is now handled by WebSocketProgressBar in App component */}
       </div>
     </Card>
   );

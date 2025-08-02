@@ -2,7 +2,7 @@
 
 *[English](README.md) | [中文文档](README.zh-CN.md) | [日本語ドキュメント](README.ja.md)*
 
-**デュアルモード編集システム**を備えた包括的なWebベースのインテリジェント文字処理ツール：OCR文字検出/修正とAI搭載インペインティングによる高度な文字生成。
+**デュアルモード編集システム**を備えた包括的なWebベースのインテリジェント文字処理ツール：OCR文字検出/修正とAI搭載インペインティングによる高度な文字生成。優れたスケーラビリティと保守性を実現する**マイクロサービスアーキテクチャ**を採用。
 
 ## ✨ 主要機能
 
@@ -11,6 +11,7 @@
 - ✨ **文字生成**：フォント分析と精密配置によるカスタム文字レンダリング
 - 🎨 **インタラクティブキャンバス**：Konva.js駆動のドラッグアンドドロップ文字領域編集
 - ↩️ **デュアル取り消し/やり直し**：OCRと処理モードの独立したコマンド履歴
+- 🏗️ **マイクロサービスアーキテクチャ**：独立したサービスによる優れたスケーラビリティとリソース管理
 - 🐳 **Docker対応**：永続的なモデルキャッシュを備えたフルスタックコンテナ化
 - 📱 **レスポンシブデザイン**：デスクトップとタブレットデバイスでシームレスに動作
 
@@ -24,10 +25,12 @@ git clone <repository-url>
 cd labeltool
 docker-compose up --build
 
-# アプリケーションにアクセス
+# アプリケーションにアクセス（3サービス構成）
 # フロントエンド：http://localhost:3000
 # バックエンドAPI：http://localhost:8000
+# IOPaintサービス：http://localhost:8081
 # APIドキュメント：http://localhost:8000/docs
+# IOPaintドキュメント：http://localhost:8081/docs
 ```
 
 これだけです！アプリケーションがすべての依存関係とともに完全に動作します。
@@ -76,16 +79,39 @@ npm run dev
 ## 🛠️ 技術スタック
 
 **フロントエンド**：React 18 + TypeScript + Konva.js + Zustand + Tailwind CSS  
-**バックエンド**：FastAPI + Python 3.11 + PaddleOCR + IOPaint + Docker  
-**AIモデル**：PP-OCRv5（文字検出）+ LAMA（インペインティング）
+**バックエンド**：FastAPI + Python 3.11 + PaddleOCR + HTTPクライアント  
+**IOPaintサービス**：FastAPI + IOPaint 1.6.0 + LAMAモデル  
+**AIモデル**：PP-OCRv5（文字検出）+ LAMA（インペインティング）  
+**アーキテクチャ**：マイクロサービス + Docker Composeオーケストレーション
+
+## 🏗️ マイクロサービスアーキテクチャ
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   フロントエンド  │    │   バックエンド    │    │ IOPaintサービス  │
+│  (Reactアプリ)   │────│   (FastAPI)     │────│   (FastAPI)     │
+│   ポート: 3000   │    │   ポート: 8000   │    │   ポート: 8081   │  
+│                 │    │                 │    │                 │
+│ - ユーザーUI    │    │ - OCR文字検出   │    │ - 文字除去       │
+│ - キャンバス編集│    │ - セッション管理  │    │ - LAMAモデル     │
+│ - ファイル上传   │    │ - APIゲートウェイ │    │ - インペインティング│
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+**アーキテクチャの利点**：
+- **サービス分離**：各サービスを独立して開発・デプロイ・スケーリング可能
+- **リソース最適化**：IOPaintは専用GPUリソースを使用可能
+- **障害耐性**：単一サービスの障害がシステム全体をクラッシュさせない
+- **再利用性**：IOPaintサービスを他のアプリケーションで使用可能
 
 ## 🔧 APIエンドポイント
 
+### メインバックエンドAPI（ポート8000）
 ```bash
-# 画像アップロードでセッション作成
+# セッション作成と画像アップロード
 POST /api/v1/sessions
 
-# 文字除去処理
+# 文字除去処理（内部でIOPaintサービスを呼び出し）
 POST /api/v1/sessions/{id}/process
 
 # カスタム文字生成
@@ -95,7 +121,23 @@ POST /api/v1/sessions/{id}/generate-text
 GET /api/v1/sessions/{id}/result
 ```
 
-完全なAPIドキュメント：http://localhost:8000/docs
+### IOPaintサービスAPI（ポート8081）
+```bash
+# ヘルスチェック
+GET /api/v1/health
+
+# サービス情報
+GET /api/v1/info
+
+# 領域文字インペインティング
+POST /api/v1/inpaint-regions
+```
+
+**ドキュメント**：
+- メインAPI：http://localhost:8000/docs
+- IOPaintサービス：http://localhost:8081/docs
+
+
 
 ## 📖 ドキュメント
 
@@ -109,9 +151,13 @@ GET /api/v1/sessions/{id}/result
 docker --version
 docker-compose --version
 
-# ログを表示
-docker-compose logs backend
+# 各サービスのログを表示
 docker-compose logs frontend
+docker-compose logs backend  
+docker-compose logs iopaint-service
+
+# すべてのサービスの状態を確認
+docker-compose ps
 ```
 
 **パフォーマンス**：初回実行時にAIモデルをダウンロードします（〜2GB）。その後の実行ははるかに高速です。

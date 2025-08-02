@@ -34,7 +34,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showConfirm, showToast, showEr
   const {
     currentSession,
     isLoading,
-    processTextRemoval,
+    processTextRemovalAsync,
+    currentTaskId,
+    setCurrentTaskId,
     downloadResult,
     downloadRegionsCSV,
     deleteSession,
@@ -89,9 +91,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showConfirm, showToast, showEr
 
   const handleProcessing = async () => {
     try {
-      await processTextRemoval();
+      const taskId = await processTextRemovalAsync();
+      showToast?.(`Started processing with real-time progress. Task ID: ${taskId.slice(0, 8)}...`);
     } catch (error) {
-      console.error('Processing failed:', error);
+      console.error('Failed to start async processing:', error);
+      showErrorToast?.('Failed to start processing. Please try again.');
     }
   };
 
@@ -328,13 +332,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showConfirm, showToast, showEr
             variant="gradient"
             size="sm"
             onClick={handleProcessing}
-            disabled={!canProcess || isLoading || processingState.isProcessing}
-            loading={processingState.isProcessing}
+            disabled={!canProcess || isLoading || !!currentTaskId}
+            loading={!!currentTaskId}
             loadingText="Processing"
             icon={<Play className="h-4 w-4" />}
             title="Process Text Removal (Ctrl + P)"
           >
-            {processingState.isProcessing ? "Processing" : "Process"}
+            {!!currentTaskId ? "Processing" : "Process"}
           </Button>
 
           {shouldShowGenerateTextButton && (
@@ -380,12 +384,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showConfirm, showToast, showEr
             <span>
               <strong>Regions:</strong> {getCurrentDisplayRegions().length}
             </span>
-            {processingState.isProcessing && processingState.progress && (
-              <span className="text-blue-600 dark:text-blue-400">
-                <strong>Progress:</strong> {Math.round(processingState.progress.progress)}%
-              </span>
-            )}
-            {canvasState.selectedRegionId && !processingState.isProcessing && (
+            {canvasState.selectedRegionId && !currentTaskId && (
               <span className="text-blue-600 dark:text-blue-400">
                 <strong>Selected:</strong> Region {
                   getCurrentDisplayRegions().findIndex(r => r.id === canvasState.selectedRegionId) + 1

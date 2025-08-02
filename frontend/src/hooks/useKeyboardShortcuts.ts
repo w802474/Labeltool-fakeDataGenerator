@@ -14,7 +14,7 @@ export interface KeyboardShortcut {
 export const useKeyboardShortcuts = () => {
   const {
     currentSession,
-    processTextRemoval,
+    processTextRemovalAsync,
     downloadResult,
     deleteSession,
     setSelectedRegion,
@@ -56,9 +56,13 @@ export const useKeyboardShortcuts = () => {
     {
       key: 'p',
       ctrlKey: true,
-      action: () => {
+      action: async () => {
         if (currentSession && (currentSession.status === 'detected' || currentSession.status === 'editing')) {
-          processTextRemoval();
+          try {
+            await processTextRemovalAsync();
+          } catch (error) {
+            console.error('Failed to start async processing via keyboard shortcut:', error);
+          }
         }
       },
       description: 'Process text removal',

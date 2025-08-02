@@ -11,7 +11,6 @@ from app.application.dto.session_dto import (
     ErrorResponse,
     ValidationErrorResponse,
     UpdateTextRegionsRequest,
-    ProcessTextRemovalRequest,
     RestoreSessionRequest
 )
 
@@ -74,15 +73,6 @@ class ProcessingResultResponse(BaseModel):
     processing_summary: dict = Field(..., description="Summary of processing results")
 
 
-class EstimateResponse(BaseModel):
-    """Response for processing time estimation."""
-    estimated_seconds: int = Field(..., description="Estimated processing time in seconds")
-    complexity: str = Field(..., description="Processing complexity level")
-    region_count: int = Field(..., description="Number of regions to process")
-    recommendations: List[str] = Field(
-        default_factory=list, description="Processing recommendations"
-    )
-    details: dict = Field(..., description="Detailed complexity analysis")
 
 
 class HealthCheckResponse(BaseModel):
@@ -145,6 +135,59 @@ class SessionValidationResponse(BaseModel):
     recommendations: List[str] = Field(
         default_factory=list, description="Recommendations for improvement"
     )
+
+
+# Async Processing Models
+class ProcessTextRemovalAsyncRequest(BaseModel):
+    """Request model for async text removal processing."""
+    task_id: Optional[str] = Field(
+        None, description="Unified task ID from frontend (if not provided, backend will generate one)"
+    )
+    regions: Optional[List[TextRegionDTO]] = Field(
+        None, description="Updated regions to process (optional, uses session regions if not provided)"
+    )
+    inpainting_method: str = Field(
+        default="iopaint", description="IOPaint inpainting method to use"
+    )
+    custom_radius: Optional[int] = Field(
+        None, ge=1, le=50, description="Custom inpainting radius (1-50 pixels)"
+    )
+    websocket_url: Optional[str] = Field(
+        None, description="WebSocket URL for progress updates (auto-generated if not provided)"
+    )
+
+
+class ProcessTextRemovalAsyncResponse(BaseModel):
+    """Response for async text removal processing."""
+    task_id: str = Field(..., description="Unique task identifier for tracking progress")
+    session_id: str = Field(..., description="Session identifier")
+    status: str = Field(..., description="Initial task status")
+    message: str = Field(..., description="Processing status message")
+    websocket_url: str = Field(..., description="WebSocket URL for real-time progress updates")
+    estimated_duration: Optional[int] = Field(
+        None, description="Estimated processing duration in seconds"
+    )
+
+
+class TaskStatusResponse(BaseModel):
+    """Response for task status queries."""
+    task_id: str = Field(..., description="Task identifier")
+    session_id: str = Field(..., description="Session identifier")
+    status: str = Field(..., description="Current task status")
+    stage: str = Field(..., description="Current processing stage")
+    progress: float = Field(..., ge=0.0, le=100.0, description="Progress percentage (0-100)")
+    message: str = Field(..., description="Current status message")
+    started_at: Optional[datetime] = Field(None, description="Task start time")
+    completed_at: Optional[datetime] = Field(None, description="Task completion time")
+    error_message: Optional[str] = Field(None, description="Error message if task failed")
+    result: Optional[dict] = Field(None, description="Task result if completed")
+
+
+class TaskCancelResponse(BaseModel):
+    """Response for task cancellation."""
+    task_id: str = Field(..., description="Task identifier")
+    status: str = Field(..., description="Cancellation status")
+    message: str = Field(..., description="Cancellation message")
 
 
 # Statistics and Metrics Models

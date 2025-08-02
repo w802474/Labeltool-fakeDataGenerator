@@ -5,6 +5,7 @@ import { useRegionSync } from '@/hooks/useRegionSync';
 import { useConfirmDialog } from '@/hooks/useConfirmDialog';
 import { useFileUploadTrigger } from '@/hooks/useFileUploadTrigger';
 import { useToast } from '@/hooks/useToast';
+import { apiService } from '@/services/api';
 import { FileUpload } from '@/components/FileUpload';
 import { ImageCanvas } from '@/components/ImageCanvas';
 import { Toolbar } from '@/components/Toolbar';
@@ -14,9 +15,10 @@ import { Header } from '@/components/Header';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Toast } from '@/components/ui/Toast';
 import { EditableText } from '@/components/EditableText';
+import { WebSocketProgressBar } from '@/components/ProcessingProgress/WebSocketProgressBar';
 
 function App() {
-  const { currentSession, error, setError, canvasState, setSelectedRegion, shouldAutoTriggerUpload, setShouldAutoTriggerUpload, updateTextRegion, updateTextRegionWithUndo, processingState, getCurrentDisplayRegions, addTextRegion, removeTextRegion } = useAppStore();
+  const { currentSession, error, setError, canvasState, setSelectedRegion, shouldAutoTriggerUpload, setShouldAutoTriggerUpload, updateTextRegion, updateTextRegionWithUndo, processingState, getCurrentDisplayRegions, addTextRegion, removeTextRegion, currentTaskId, setCurrentTaskId, setCurrentSession, setImageDisplayMode } = useAppStore();
   
   // Initialize keyboard shortcuts
   useKeyboardShortcuts();
@@ -135,6 +137,46 @@ function App() {
             <div className="space-y-6">
               {/* Toolbar */}
               <Toolbar showConfirm={showConfirm} showToast={showSuccess} showErrorToast={showError} />
+              
+              {/* WebSocket Progress Bar */}
+              {currentTaskId && (
+                <WebSocketProgressBar
+                  taskId={currentTaskId}
+                  onComplete={async (result) => {
+                    console.log('✅ Processing completed:', result);
+                    showSuccess('Text removal completed successfully!');
+                    
+                    // Refresh session to get the latest data (including processed image)
+                    if (currentSession) {
+                      try {
+                        const updatedSession = await apiService.getSession(currentSession.id);
+                        setCurrentSession(updatedSession);
+                        setImageDisplayMode('processed');
+                      } catch (error) {
+                        console.error('Failed to refresh session after completion:', error);
+                        // Still switch to processed mode even if refresh fails
+                        setImageDisplayMode('processed');
+                      }
+                    }
+                    
+                    // Clear task ID
+                    setCurrentTaskId(null);
+                  }}
+                  onCancel={() => {
+                    console.log('❌ Processing cancelled');
+                    showError('Text removal processing was cancelled.');
+                    setCurrentTaskId(null);
+                  }}
+                  onError={(error) => {
+                    console.error('💥 Processing failed:', error);
+                    showError(`Processing failed: ${error}`);
+                    setCurrentTaskId(null);
+                  }}
+                  className="max-w-2xl mx-auto"
+                  showDetails={true}
+                  allowCancel={true}
+                />
+              )}
               
               {/* Main Editor */}
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">

@@ -2,7 +2,7 @@
 
 *[English](README.md) | [中文文档](README.zh-CN.md) | [日本語ドキュメント](README.ja.md)*
 
-A comprehensive web-based tool for intelligent text processing with **dual-mode editing system**: OCR text detection/correction and advanced text generation with AI-powered inpainting.
+A comprehensive web-based tool for intelligent text processing with **dual-mode editing system**: OCR text detection/correction and advanced text generation with AI-powered inpainting. Now featuring a **microservice architecture** for better scalability and maintainability.
 
 ## ✨ Key Features
 
@@ -11,6 +11,7 @@ A comprehensive web-based tool for intelligent text processing with **dual-mode 
 - ✨ **Text Generation**: Custom text rendering with font analysis and precise positioning
 - 🎨 **Interactive Canvas**: Konva.js-powered drag-and-drop text region editing
 - ↩️ **Dual Undo/Redo**: Separate command histories for OCR and processed modes
+- 🏗️ **Microservice Architecture**: Separate services for better scalability and resource management
 - 🐳 **Docker Ready**: Full-stack containerization with persistent model caching
 - 📱 **Responsive Design**: Works seamlessly on desktop and tablet devices
 
@@ -24,10 +25,12 @@ git clone <repository-url>
 cd labeltool
 docker-compose up --build
 
-# Access the application
+# Access the application (3-service architecture)
 # Frontend: http://localhost:3000
 # Backend API: http://localhost:8000
+# IOPaint Service: http://localhost:8081
 # API Docs: http://localhost:8000/docs
+# IOPaint Docs: http://localhost:8081/docs
 ```
 
 That's it! The application will be fully running with all dependencies.
@@ -76,16 +79,39 @@ npm run dev
 ## 🛠️ Technology Stack
 
 **Frontend**: React 18 + TypeScript + Konva.js + Zustand + Tailwind CSS  
-**Backend**: FastAPI + Python 3.11 + PaddleOCR + IOPaint + Docker  
-**AI Models**: PP-OCRv5 (text detection) + LAMA (inpainting)
+**Backend**: FastAPI + Python 3.11 + PaddleOCR + HTTP Client  
+**IOPaint Service**: FastAPI + IOPaint 1.6.0 + LAMA Model  
+**AI Models**: PP-OCRv5 (text detection) + LAMA (inpainting)  
+**Architecture**: Microservices with Docker Compose orchestration
+
+## 🏗️ Microservice Architecture
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Frontend      │    │    Backend      │    │ IOPaint Service│
+│   (React App)   │────│  (FastAPI)      │────│   (FastAPI)     │
+│   Port: 3000    │    │   Port: 8000    │    │   Port: 8081    │  
+│                 │    │                 │    │                 │
+│ - User Interface│    │ - OCR Detection │    │ - Text Removal  │
+│ - Canvas Editor │    │ - Session Mgmt  │    │ - LAMA Model    │
+│ - File Upload   │    │ - API Gateway   │    │ - Inpainting    │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+**Benefits of this architecture**:
+- **Service Isolation**: Each service can be developed, deployed, and scaled independently
+- **Resource Optimization**: IOPaint can use dedicated GPU resources
+- **Fault Tolerance**: Failure in one service doesn't crash the entire system
+- **Reusability**: IOPaint service can be used by other applications
 
 ## 🔧 API Endpoints
 
+### Main Backend API (Port 8000)
 ```bash
 # Create session with image upload
 POST /api/v1/sessions
 
-# Process text removal
+# Process text removal (calls IOPaint service internally)
 POST /api/v1/sessions/{id}/process
 
 # Generate custom text
@@ -95,7 +121,21 @@ POST /api/v1/sessions/{id}/generate-text
 GET /api/v1/sessions/{id}/result
 ```
 
-Full API documentation: http://localhost:8000/docs
+### IOPaint Service API (Port 8081) 
+```bash
+# Health check
+GET /api/v1/health
+
+# Service information
+GET /api/v1/info
+
+# Text inpainting with regions
+POST /api/v1/inpaint-regions
+```
+
+**Documentation**:
+- Main API: http://localhost:8000/docs
+- IOPaint Service: http://localhost:8081/docs
 
 ## 📖 Documentation
 
@@ -109,9 +149,13 @@ Full API documentation: http://localhost:8000/docs
 docker --version
 docker-compose --version
 
-# View logs
-docker-compose logs backend
+# View logs for each service
 docker-compose logs frontend
+docker-compose logs backend  
+docker-compose logs iopaint-service
+
+# View all services status
+docker-compose ps
 ```
 
 **Performance**: First run downloads AI models (~2GB). Subsequent runs are much faster.

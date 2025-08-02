@@ -50,6 +50,8 @@ class TextRegionDTO(BaseModel):
     font_properties: Optional[dict] = Field(None, description="Estimated font properties for text rendering")
     original_box_size: Optional[RectangleDTO] = Field(None, description="Original bounding box size for scaling calculations")
     is_size_modified: bool = Field(default=False, description="Whether the user has modified the box size")
+    text_category: Optional[str] = Field(None, description="Text classification category")
+    category_config: Optional[dict] = Field(None, description="Category color and display configuration")
 
 
 class LabelSessionDTO(BaseModel):
@@ -78,22 +80,6 @@ class UpdateTextRegionsRequest(BaseModel):
     export_csv: Optional[bool] = Field(default=True, description="Whether to export regions to CSV file")
 
 
-class ProcessTextRemovalRequest(BaseModel):
-    """Request to process text removal."""
-    inpainting_method: Optional[str] = Field(
-        default="telea", 
-        description="Inpainting method: 'telea' or 'ns'"
-    )
-    custom_radius: Optional[int] = Field(
-        None, 
-        ge=3, 
-        le=15, 
-        description="Custom inpainting radius"
-    )
-    regions: Optional[List[TextRegionDTO]] = Field(
-        None,
-        description="Updated text regions to process (if not provided, uses session regions)"
-    )
 
 
 class RestoreSessionRequest(BaseModel):

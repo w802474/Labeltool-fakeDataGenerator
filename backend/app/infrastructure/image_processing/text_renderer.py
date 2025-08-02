@@ -486,9 +486,8 @@ class TextRenderer:
                     logger.info(f"  Using PIL anchor='mm' for center alignment")
                 
                 # Use PIL's native middle-middle anchor for precise center alignment
-            draw.text((text_x, text_y), safe_text, font=font, fill=text_color, anchor="mm")
-                
-            logger.info(f"Rendered text '{text[:20]}...' in region {text_region.id}")
+                draw.text((text_x, text_y), safe_text, font=font, fill=text_color, anchor="mm")
+                logger.info(f"Rendered text '{text[:20]}...' in region {text_region.id}")
             
             # Generate output path
             input_filename = Path(image_path).stem

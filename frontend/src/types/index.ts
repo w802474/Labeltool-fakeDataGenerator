@@ -24,6 +24,14 @@ export interface TextRegion {
   font_properties?: Record<string, any>; // Estimated font properties for text rendering
   original_box_size?: Rectangle; // Original bounding box size for scaling calculations
   is_size_modified?: boolean; // Whether the user has modified the box size
+  text_category?: string; // Text classification category
+  category_config?: {
+    category: string;
+    color: string;
+    bgColor: string;
+    label: string;
+    description: string;
+  }; // Category color and display configuration
 }
 
 export interface Dimensions {
@@ -110,8 +118,6 @@ export interface AppState {
   error: string | null;
   canvasState: CanvasState;
   processingState: {
-    isProcessing: boolean;
-    progress: ProcessingProgress | null;
     displayMode: ImageDisplayMode;
     showRegionOverlay: boolean;
   };
@@ -147,16 +153,7 @@ export interface UploadProgress {
   message: string;
 }
 
-// Processing types
-export type ProcessingStage = 'starting' | 'processing' | 'finalizing';
-
-export interface ProcessingProgress {
-  stage: ProcessingStage;
-  progress: number; // 0-100
-  message: string;
-  startTime?: number;
-  estimatedTimeRemaining?: number;
-}
+// Removed deprecated processing types - now handled by WebSocket progress system
 
 export type ImageDisplayMode = 'original' | 'processed';
 

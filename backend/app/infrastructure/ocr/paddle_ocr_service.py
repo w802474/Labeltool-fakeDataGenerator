@@ -17,6 +17,7 @@ from app.domain.value_objects.point import Point
 from app.infrastructure.image_processing.image_resizer import ImageResizer, CoordinateScaler
 from app.infrastructure.image_processing.document_detector import DocumentDetector
 from app.infrastructure.ocr.ocr_config import OCRConfigManager
+from app.infrastructure.text_classification.japanese_text_classifier import JapaneseTextClassifier
 
 
 class PaddleOCRService:
@@ -219,6 +220,9 @@ class PaddleOCRService:
                             original_text=text.strip()
                         )
                         
+                        # Add Japanese text classification
+                        JapaneseTextClassifier.add_classification_to_text_region(text_region)
+                        
                         text_regions.append(text_region)
                         
                     except Exception as e:
@@ -311,6 +315,9 @@ class PaddleOCRService:
                     corners=corners,
                     original_text=text.strip() if text.strip() else None
                 )
+                
+                # Add Japanese text classification
+                JapaneseTextClassifier.add_classification_to_text_region(text_region)
                 
                 text_regions.append(text_region)
                 

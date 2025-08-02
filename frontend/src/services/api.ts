@@ -125,16 +125,72 @@ class ApiService {
     return response.data.session;
   }
 
-  async processTextRemoval(sessionId: string, regions?: TextRegion[]): Promise<LabelSession> {
-    const requestBody = regions ? { regions } : {};
-    const response: AxiosResponse<{session: LabelSession}> = await this.client.post(
-      `/sessions/${sessionId}/process`,
+  // Async text removal processing with WebSocket progress monitoring
+  async processTextRemovalAsync(
+    sessionId: string, 
+    regions?: TextRegion[], 
+    inpaintingMethod: string = 'iopaint',
+    customRadius?: number
+  ): Promise<{
+    task_id: string;
+    session_id: string;
+    status: string;
+    message: string;
+    websocket_url: string;
+    estimated_duration?: number;
+  }> {
+    // Generate unified task ID that will be used throughout the entire pipeline
+    const taskId = crypto.randomUUID();
+    
+    const requestBody: any = {
+      task_id: taskId,
+      inpainting_method: inpaintingMethod
+    };
+    
+    if (regions) {
+      requestBody.regions = regions;
+    }
+    
+    if (customRadius) {
+      requestBody.custom_radius = customRadius;
+    }
+
+    const response = await this.client.post(
+      `/sessions/${sessionId}/process-async`,
       requestBody,
       {
-        timeout: 60000, // Increase timeout for processing
+        timeout: 30000, // Shorter timeout for async start
       }
     );
-    return response.data.session;
+    
+    return response.data;
+  }
+
+  // Get async task status
+  async getTaskStatus(taskId: string): Promise<{
+    task_id: string;
+    session_id: string;
+    status: string;
+    stage: string;
+    progress: number;
+    message: string;
+    started_at?: string;
+    completed_at?: string;
+    error_message?: string;
+    result?: any;
+  }> {
+    const response = await this.client.get(`/tasks/${taskId}/status`);
+    return response.data;
+  }
+
+  // Cancel async task
+  async cancelTask(taskId: string): Promise<{
+    task_id: string;
+    status: string;
+    message: string;
+  }> {
+    const response = await this.client.post(`/tasks/${taskId}/cancel`);
+    return response.data;
   }
 
   async downloadResult(sessionId: string): Promise<Blob> {

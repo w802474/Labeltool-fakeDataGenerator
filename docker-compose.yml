@@ -16,15 +16,17 @@ services:
       - PROCESSED_DIR=/app/processed
       - MAX_FILE_SIZE=52428800  # 50MB
       - PADDLEOCR_DEVICE=cpu
-      - IOPAINT_DEVICE=cpu
+      - IOPAINT_PORT=8081
       - CORS_ORIGINS="http://localhost:3000,http://localhost:5173,http://frontend"
     volumes:
       - backend_uploads:/app/uploads
       - backend_processed:/app/processed
       - backend_exports:/app/exports
       - backend_logs:/app/logs
-      - huggingface_cache:/root/.cache/huggingface
       - paddlex_cache:/root/.paddlex
+    depends_on:
+      iopaint-service:
+        condition: service_healthy
     networks:
       - labeltool-network
     healthcheck:
@@ -54,6 +56,35 @@ services:
       retries: 3
       start_period: 10s
 
+  iopaint-service:
+    build:
+      context: ./iopaint-service
+      dockerfile: Dockerfile
+    container_name: labeltool-iopaint
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - IOPAINT_HOST=0.0.0.0
+      - IOPAINT_PORT=8081
+      - IOPAINT_MODEL=lama
+      - IOPAINT_DEVICE=cpu
+      - IOPAINT_LOW_MEM=true
+      - IOPAINT_CPU_OFFLOAD=true
+      - IOPAINT_NO_GUI=true
+      - LOG_LEVEL=INFO
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - iopaint_temp:/app/temp
+    networks:
+      - labeltool-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
 volumes:
   backend_uploads:
     driver: local
@@ -66,6 +97,8 @@ volumes:
   huggingface_cache:
     driver: local
   paddlex_cache:
+    driver: local
+  iopaint_temp:
     driver: local
 
 networks:

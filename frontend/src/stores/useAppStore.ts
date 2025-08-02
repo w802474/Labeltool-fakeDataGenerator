@@ -41,11 +41,8 @@ interface AppStore extends AppState {
   resetCanvasState: () => void;
   
   // Processing actions
-  setProcessingProgress: (progress: ProcessingProgress | null) => void;
   setImageDisplayMode: (mode: ImageDisplayMode) => void;
   setShowRegionOverlay: (show: boolean) => void;
-  startProcessing: () => void;
-  stopProcessing: () => void;
   
   // Settings actions
   setDarkMode: (darkMode: boolean) => void;
@@ -55,12 +52,15 @@ interface AppStore extends AppState {
   // Session actions
   createSession: (file: File, onProgress?: (progress: number) => void) => Promise<LabelSession>;
   updateTextRegions: (regions: TextRegion[], mode?: string, exportCsv?: boolean, manageLoadingState?: boolean) => Promise<void>;
-  processTextRemoval: () => Promise<void>;
+  processTextRemovalAsync: () => Promise<string>; // Returns task ID
   downloadResult: () => Promise<void>;
   downloadRegionsCSV: () => Promise<void>;
   deleteSession: () => Promise<void>;
   generateTextInRegions: () => Promise<void>;
-  generateTextInRegions: () => Promise<void>;
+  
+  // Async processing state
+  currentTaskId: string | null;
+  setCurrentTaskId: (taskId: string | null) => void;
   
   // Region actions
   addTextRegion: (region: Omit<TextRegion, 'id'>) => void;
@@ -108,8 +108,6 @@ const initialState: AppState = {
   error: null,
   canvasState: initialCanvasState,
   processingState: {
-    isProcessing: false,
-    progress: null,
     displayMode: 'original',
     showRegionOverlay: false,
   },
@@ -127,6 +125,7 @@ export const useAppStore = create<AppStore>()(
       (set, get) => ({
         ...initialState,
         shouldAutoTriggerUpload: false,
+        currentTaskId: null,
 
         // Helper functions
         getCurrentDisplayRegions: () => {
@@ -134,13 +133,18 @@ export const useAppStore = create<AppStore>()(
           if (!state.currentSession) return [];
           
           const isProcessedMode = state.processingState.displayMode === 'processed';
+          
           if (isProcessedMode) {
             // If in processed mode, return processed_text_regions if available
-            // Otherwise return OCR regions (temporary state until first update)
-            if (state.currentSession.processed_text_regions) {
+            if (state.currentSession.processed_text_regions && state.currentSession.processed_text_regions.length > 0) {
               return state.currentSession.processed_text_regions;
             } else {
-              return state.currentSession.text_regions;
+              // If no processed regions exist yet, return OCR regions as fallback
+              return state.currentSession.text_regions.map(region => ({
+                ...region,
+                // Ensure user_input_text is preserved even when returning OCR regions in processed mode
+                user_input_text: region.user_input_text || ''
+              }));
             }
           }
           return state.currentSession.text_regions;
@@ -149,20 +153,29 @@ export const useAppStore = create<AppStore>()(
         // Basic setters
         setCurrentSession: (session) => {
           if (session) {
+            const currentState = get();
+            
             // Record original box sizes for all regions when setting session
             const processedSession = {
               ...session,
               text_regions: session.text_regions.map(region => recordOriginalBoxSize(region)),
               processed_text_regions: session.processed_text_regions?.map(region => recordOriginalBoxSize(region))
             };
+            
             set({ 
               currentSession: processedSession,
-              // Reset processing state for new session
+              // Preserve current display mode instead of resetting to 'original'
               processingState: {
+                ...currentState.processingState,
                 isProcessing: false,
                 progress: null,
-                displayMode: 'original',
-                showRegionOverlay: false,
+                // Only reset displayMode for truly new sessions, not updates
+                displayMode: currentState.currentSession?.id === session.id 
+                  ? currentState.processingState.displayMode 
+                  : 'original',
+                showRegionOverlay: currentState.currentSession?.id === session.id 
+                  ? currentState.processingState.showRegionOverlay 
+                  : false,
               }
             });
           } else {
@@ -226,14 +239,6 @@ export const useAppStore = create<AppStore>()(
           })),
 
         // Processing actions
-        setProcessingProgress: (progress) =>
-          set((state) => ({
-            processingState: {
-              ...state.processingState,
-              progress,
-            },
-          })),
-
         setImageDisplayMode: (displayMode) =>
           set((state) => ({
             processingState: {
@@ -247,29 +252,6 @@ export const useAppStore = create<AppStore>()(
             processingState: {
               ...state.processingState,
               showRegionOverlay,
-            },
-          })),
-
-        startProcessing: () =>
-          set((state) => ({
-            processingState: {
-              ...state.processingState,
-              isProcessing: true,
-              progress: {
-                stage: 'starting',
-                progress: 0,
-                message: 'Initializing IOPaint...',
-                startTime: Date.now(),
-              },
-            },
-          })),
-
-        stopProcessing: () =>
-          set((state) => ({
-            processingState: {
-              ...state.processingState,
-              isProcessing: false,
-              progress: null,
             },
           })),
 
@@ -347,18 +329,15 @@ export const useAppStore = create<AppStore>()(
           }
         },
 
-        processTextRemoval: async () => {
+        // Removed deprecated synchronous processing method
+        // Use processTextRemovalAsync for better performance and real-time progress
+
+        processTextRemovalAsync: async () => {
           const { 
             currentSession, 
-            setLoading, 
             setError, 
-            setCurrentSession,
-            startProcessing,
-            stopProcessing,
-            setProcessingProgress,
-            setImageDisplayMode,
+            setCurrentTaskId,
             clearProcessedHistory,
-            updateTextRegions
           } = get();
           
           if (!currentSession) {
@@ -366,74 +345,38 @@ export const useAppStore = create<AppStore>()(
           }
 
           try {
-            setLoading(true);
             setError(null);
-            startProcessing();
             
             // Clear processed history when starting a new process
             clearProcessedHistory();
 
-            // Simulate progress stages for IOPaint processing
-            const updateProgress = (stage: ProcessingStage, progress: number, message: string) => {
-              setProcessingProgress({
-                stage,
-                progress,
-                message,
-                startTime: Date.now(),
-              });
-            };
-
-            // Stage 1: Starting IOPaint service
-            updateProgress('starting', 10, 'Initializing IOPaint service...');
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            // Stage 2: Processing text removal
-            updateProgress('processing', 30, 'Analyzing text regions...');
-            await new Promise(resolve => setTimeout(resolve, 1500));
-
-            updateProgress('processing', 60, 'Removing text with AI inpainting...');
-            
-            // Pass current text_regions to ensure we use user-modified coordinates
-            const processedSession = await apiService.processTextRemoval(
+            // Start async processing
+            const response = await apiService.processTextRemovalAsync(
               currentSession.id, 
               currentSession.text_regions
             );
-
-            // Stage 3: Finalizing
-            updateProgress('finalizing', 90, 'Finalizing results...');
-            await new Promise(resolve => setTimeout(resolve, 800));
-
-            updateProgress('finalizing', 100, 'Complete!');
             
-            // Update session and switch to processed image view
-            console.log('📊 Processed session data:', {
-              text_regions_count: processedSession.text_regions?.length || 0,
-              processed_text_regions_count: processedSession.processed_text_regions?.length || 0,
-              user_added_regions: processedSession.text_regions?.filter(r => r.is_user_modified).length || 0,
-              regions_with_user_text: processedSession.processed_text_regions?.filter(r => r.user_input_text).length || 0
+            // Store task ID for progress monitoring
+            setCurrentTaskId(response.task_id);
+            
+            console.log('🚀 Started async processing:', {
+              taskId: response.task_id,
+              sessionId: response.session_id,
+              websocketUrl: response.websocket_url,
+              estimatedDuration: response.estimated_duration
             });
-            
-            setCurrentSession(processedSession);
-            setImageDisplayMode('processed');
-            // Hide region overlay by default after processing to show clean result
-            set(state => ({
-              processingState: {
-                ...state.processingState,
-                showRegionOverlay: false
-              }
-            }));
-            
-            // Longer delay to show completion animation
-            await new Promise(resolve => setTimeout(resolve, 2000));
 
+            return response.task_id;
+            
           } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Failed to process text removal';
+            const errorMessage = error instanceof Error ? error.message : 'Failed to start async text removal';
             setError(errorMessage);
             throw error;
-          } finally {
-            setLoading(false);
-            stopProcessing();
           }
+        },
+
+        setCurrentTaskId: (taskId) => {
+          set({ currentTaskId: taskId });
         },
 
         downloadResult: async () => {
@@ -552,8 +495,14 @@ export const useAppStore = create<AppStore>()(
             // First, sync current regions to backend to ensure coordinates are up-to-date (without CSV export)
             await updateTextRegions(regionsToSync, updateMode, false, false);
             
-            // Collect regions with user input text from current display regions (where user fills text)
-            const regionsWithText = regionsToSync
+            // Wait a bit for state synchronization
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            // Get fresh regions after sync to ensure we have the latest state
+            const freshRegions = get().getCurrentDisplayRegions();
+            
+            // Collect regions with user input text from fresh display regions (where user fills text)
+            const regionsWithText = freshRegions
               .filter(region => region.user_input_text && region.user_input_text.trim().length > 0)
               .map(region => ({
                 region_id: region.id,
@@ -693,7 +642,11 @@ export const useAppStore = create<AppStore>()(
               }
             });
             
-            setCurrentSession(updatedSession);
+            // Update session state with fresh timestamp to force UI refresh
+            setCurrentSession({
+              ...updatedSession,
+              updated_at: new Date().toISOString()
+            });
             
             // Automatically switch to processed image view to show the generated text
             setImageDisplayMode('processed');
