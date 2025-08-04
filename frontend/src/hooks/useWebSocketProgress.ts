@@ -36,6 +36,11 @@ export interface ProgressState {
   startTime: Date | null;
   endTime: Date | null;
   duration: number | null;
+  
+  // Update frequency tracking
+  updateFrequency: number;
+  lastUpdateTime: number;
+  recentUpdates: number[];
 }
 
 export interface UseWebSocketProgressOptions {
@@ -80,7 +85,10 @@ const initialProgressState: ProgressState = {
   result: null,
   startTime: null,
   endTime: null,
-  duration: null
+  duration: null,
+  updateFrequency: 0,
+  lastUpdateTime: 0,
+  recentUpdates: []
 };
 
 export function useWebSocketProgress(
@@ -98,6 +106,24 @@ export function useWebSocketProgress(
   const [progress, setProgress] = useState<ProgressState>(initialProgressState);
   const clientRef = useRef<WebSocketClient | null>(null);
   const subscriptionsRef = useRef<Set<string>>(new Set());
+
+  // Calculate update frequency
+  const calculateUpdateFrequency = useCallback((prevState: ProgressState): { frequency: number; recentUpdates: number[] } => {
+    const now = Date.now();
+    
+    // Add current update time and keep only recent updates (last 2 seconds)
+    const recentUpdates = [...prevState.recentUpdates, now].filter(
+      time => now - time <= 2000
+    );
+    
+    // Calculate frequency (updates per second)
+    const timeSpan = recentUpdates.length > 1 
+      ? (now - recentUpdates[0]) / 1000 
+      : 1;
+    const frequency = recentUpdates.length / Math.max(timeSpan, 0.1);
+    
+    return { frequency, recentUpdates };
+  }, []);
 
   // Initialize WebSocket client
   useEffect(() => {
@@ -178,21 +204,39 @@ export function useWebSocketProgress(
     client.addEventListener('progress_update', (message) => {
       const update = message as ProgressUpdate;
       
-      setProgress(prev => ({
-        ...prev,
-        taskId: update.task_id,
-        sessionId: update.session_id,
-        status: update.status,
-        stage: update.stage,
-        progress: update.progress,
-        message: update.message,
-        error: update.error_message || null,
-        startTime: prev.startTime || new Date()
-      }));
+      // Robust NaN checking and sanitization
+      let safeProgress = 0;
+      if (typeof update.progress === 'number' && !Number.isNaN(update.progress) && Number.isFinite(update.progress)) {
+        safeProgress = Math.max(0, Math.min(100, update.progress));
+      } else {
+        console.warn('[WebSocketProgress] Invalid progress value received:', update.progress, typeof update.progress);
+        console.warn('[WebSocketProgress] Full update message:', update);
+        safeProgress = 0;
+      }
+      
+      setProgress(prev => {
+        const { frequency, recentUpdates } = calculateUpdateFrequency(prev);
+        const now = Date.now();
+        
+        return {
+          ...prev,
+          taskId: update.task_id,
+          sessionId: update.session_id,
+          status: update.status,
+          stage: update.stage,
+          progress: safeProgress,
+          message: update.message,
+          error: update.error_message || null,
+          startTime: prev.startTime || new Date(),
+          updateFrequency: frequency,
+          lastUpdateTime: now,
+          recentUpdates: recentUpdates
+        };
+      });
       
       onProgress?.(update);
       
-      if (debug) console.log('[WebSocketProgress] Progress update:', update);
+      if (debug) console.log('[WebSocketProgress] Progress update:', { ...update, sanitizedProgress: safeProgress });
     });
 
     // Task completion events

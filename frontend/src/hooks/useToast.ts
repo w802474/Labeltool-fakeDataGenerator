@@ -13,7 +13,8 @@ export const useToast = () => {
     const id = Math.random().toString(36).substr(2, 9);
     const toast = { ...options, id };
     
-    setToasts(prev => [...prev, toast]);
+    // Add new message to the beginning of array so it appears at the top
+    setToasts(prev => [toast, ...prev]);
   }, []);
 
   const removeToast = useCallback((id: string) => {

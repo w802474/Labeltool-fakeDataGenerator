@@ -130,18 +130,28 @@ class ProgressTracker:
     async def start_inpainting(self):
         """Start AI inpainting stage."""
         await self.complete_stage("Mask generation complete")
-        await self.start_stage(ProcessingStage.INPAINTING, "Starting AI inpainting process...")
+        await self.start_stage(ProcessingStage.INPAINTING, "AI inpainting in progress...")
     
     async def update_inpainting_progress(self, region_index: int, region_progress: float):
         """
-        Update inpainting progress for specific region.
+        Update inpainting progress (simplified - just pass data to task_manager).
         
         Args:
             region_index: Current region index (1-based)
             region_progress: Progress within current region (0-100)
         """
-        message = f"Inpainting region {region_index} of {self.total_regions}..."
-        await self.advance_region(region_index, region_progress, message)
+        # Update current region info for task_manager calculation
+        self.current_region = max(0, int(region_index))
+        
+        # Ensure region_progress is a valid float in range [0, 100]
+        try:
+            safe_progress = float(region_progress or 0.0)
+            safe_progress = max(0.0, min(100.0, safe_progress))
+        except (ValueError, TypeError):
+            safe_progress = 0.0
+        
+        message = "AI inpainting in progress..."
+        await self.update_stage_progress(safe_progress, message)
     
     async def start_finalizing(self):
         """Start finalization stage."""

@@ -21,6 +21,7 @@ from app.services.diagnostics import iopaint_diagnostics, ResourceMonitor
 from app.services.resource_monitor import resource_monitor
 from app.services.preprocessing_validator import preprocessing_validator, RiskLevel
 from app.services.retry_manager import retry_manager
+from app.services.image_scaler import image_scaler
 
 
 class IOPaintCore:
@@ -437,7 +438,7 @@ class IOPaintCore:
         **kwargs
     ) -> bytes:
         """
-        Remove text regions from image using IOPaint.
+        Remove text regions from image using IOPaint with automatic scaling.
         
         Args:
             image_b64: Base64 encoded image
@@ -445,25 +446,50 @@ class IOPaintCore:
             **kwargs: Additional IOPaint parameters
             
         Returns:
-            Processed image as bytes
+            Processed image as bytes (scaled back to original size if needed)
         """
         start_time = time.time()
         
         try:
-            # Decode image to get dimensions
-            image_data = base64.b64decode(image_b64)
+            # Get scaling info first
+            scaling_info = image_scaler.get_scaling_info(image_b64)
+            logger.info(f"Original image: {scaling_info['original_size']}, "
+                       f"Megapixels: {scaling_info['megapixels']:.1f}MP")
+            
+            # Scale image and regions if needed
+            if scaling_info['scaling_needed']:
+                logger.info(f"Large image detected, scaling down by factor {scaling_info['scale_factor']:.3f}")
+                scaled_image_b64, scale_factor, original_size, new_size = image_scaler.scale_image_base64(image_b64)
+                scaled_regions = image_scaler.scale_regions(regions, scale_factor, 
+                                                          image_size=new_size, expand_regions=True)
+                
+                # Use scaled data for processing
+                processing_image_b64 = scaled_image_b64
+                processing_regions = scaled_regions
+            else:
+                logger.info("Image size is within limits, no scaling needed")
+                processing_image_b64 = image_b64
+                processing_regions = regions
+                original_size = scaling_info['original_size']
+                new_size = scaling_info['new_size']
+            
+            # Decode scaled/original image to get dimensions for mask creation
+            image_data = base64.b64decode(processing_image_b64)
             image = Image.open(io.BytesIO(image_data)).convert("RGB")
             image_np = np.array(image)
             
             logger.info(f"Processing image: {image_np.shape}")
-            logger.info(f"Text regions to remove: {len(regions)}")
+            logger.info(f"Text regions to remove: {len(processing_regions)}")
             
-            # Create mask from text regions
-            mask = self.create_mask_from_regions(image_np.shape, regions)
+            # Create mask from processed regions
+            mask = self.create_mask_from_regions(image_np.shape, processing_regions)
             
             # Check if there are any regions to inpaint
             if np.sum(mask) == 0:
                 logger.warning("No text regions to inpaint, returning original image")
+                # If we scaled down, we need to return the original image
+                if scaling_info['scaling_needed']:
+                    return base64.b64decode(image_b64)
                 return image_data
             
             # Convert mask to base64
@@ -472,20 +498,29 @@ class IOPaintCore:
             mask_pil.save(mask_buffer, format='PNG')
             mask_b64 = base64.b64encode(mask_buffer.getvalue()).decode('utf-8')
             
-            # Call IOPaint API
+            # Call IOPaint API with scaled image and mask
             logger.info("Starting text inpainting with IOPaint...")
             result_bytes = await self.inpaint_image(
-                image_b64, 
+                processing_image_b64, 
                 mask_b64, 
                 image_size=image_np.shape,
-                region_count=len(regions),
+                region_count=len(processing_regions),
                 **kwargs
             )
+            
+            # Scale result back to original size if we scaled down
+            if scaling_info['scaling_needed']:
+                logger.info("Scaling result image back to original size...")
+                final_result_bytes = image_scaler.scale_result_back(
+                    result_bytes, original_size, new_size
+                )
+            else:
+                final_result_bytes = result_bytes
             
             processing_time = time.time() - start_time
             logger.info(f"Text removal completed in {processing_time:.2f}s")
             
-            return result_bytes
+            return final_result_bytes
             
         except Exception as e:
             logger.error(f"Error during text removal: {e}")
@@ -687,8 +722,30 @@ class IOPaintCore:
             resource_monitor.mark_processing_phase("image_preparation")
             await tracker.prepare_image(0)
             
-            # Decode image to get dimensions
-            image_data = base64.b64decode(image_b64)
+            # Get scaling info and scale if needed
+            scaling_info = image_scaler.get_scaling_info(image_b64)
+            logger.info(f"Task {task_id}: Original image: {scaling_info['original_size']}, "
+                       f"Megapixels: {scaling_info['megapixels']:.1f}MP")
+            
+            if scaling_info['scaling_needed']:
+                logger.info(f"Task {task_id}: Large image detected, scaling down by factor {scaling_info['scale_factor']:.3f}")
+                scaled_image_b64, scale_factor, original_size, new_size = image_scaler.scale_image_base64(image_b64)
+                scaled_regions = image_scaler.scale_regions(regions, scale_factor, 
+                                                          image_size=new_size, expand_regions=True)
+                
+                # Use scaled data for processing
+                processing_image_b64 = scaled_image_b64
+                processing_regions = scaled_regions
+                logger.info(f"Task {task_id}: Scaled to {new_size}, {len(processing_regions)} regions adjusted")
+            else:
+                logger.info(f"Task {task_id}: Image size is within limits, no scaling needed")
+                processing_image_b64 = image_b64
+                processing_regions = regions
+                original_size = scaling_info['original_size']
+                new_size = scaling_info['new_size']
+            
+            # Decode processed image to get dimensions
+            image_data = base64.b64decode(processing_image_b64)
             image = Image.open(io.BytesIO(image_data)).convert("RGB")
             image_np = np.array(image)
             
@@ -696,7 +753,7 @@ class IOPaintCore:
             logger.info(f"Task {task_id}: Processing image {image_np.shape}")
             
             await tracker.prepare_regions(80)
-            logger.info(f"Task {task_id}: Processing {len(regions)} text regions")
+            logger.info(f"Task {task_id}: Processing {len(processing_regions)} text regions")
             
             await tracker.prepare_image(100)
             resource_monitor.end_processing_phase("image_preparation")
@@ -705,20 +762,25 @@ class IOPaintCore:
             resource_monitor.mark_processing_phase("mask_generation")
             await tracker.start_masking()
             
-            # Create mask from text regions
-            mask = self.create_mask_from_regions(image_np.shape, regions)
+            # Create mask from processed regions (scaled if needed)
+            mask = self.create_mask_from_regions(image_np.shape, processing_regions)
             
             await tracker.update_masking_progress(50)
             
             # Check if there are any regions to inpaint
             if np.sum(mask) == 0:
                 logger.warning(f"Task {task_id}: No text regions to inpaint, returning original image")
-                # Save original image as result
+                # Save original image as result (use original size image if scaled)
                 import tempfile
                 import os
                 
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
-                    tmp_file.write(image_data)
+                    if scaling_info['scaling_needed']:
+                        # Return original unscaled image
+                        original_image_data = base64.b64decode(image_b64)
+                        tmp_file.write(original_image_data)
+                    else:
+                        tmp_file.write(image_data)
                     result_path = tmp_file.name
                 
                 await tracker.complete(result_path)
@@ -737,29 +799,46 @@ class IOPaintCore:
             resource_monitor.mark_processing_phase("ai_inpainting")
             await tracker.start_inpainting()
             
-            # For detailed progress, we'll simulate region-by-region processing
-            # In reality, IOPaint processes the entire mask at once
-            for i, region in enumerate(regions, 1):
-                await tracker.update_inpainting_progress(i, 0)
-                
-                # Simulate processing time per region
-                await asyncio.sleep(0.1)  # Small delay for demo
-                
-                await tracker.update_inpainting_progress(i, 50)
-                await asyncio.sleep(0.1)
-                
-                await tracker.update_inpainting_progress(i, 100)
-            
-            # Call IOPaint API with intelligent retry
+            # Start real IOPaint processing immediately
             logger.info(f"Task {task_id}: Starting text inpainting with IOPaint...")
-            result_bytes = await self.inpaint_image_with_retry(
-                image_b64, 
-                mask_b64, 
-                image_size=image_np.shape,
-                region_count=len(regions),
-                task_id=task_id,
-                **kwargs
+            real_processing_task = asyncio.create_task(
+                self.inpaint_image_with_retry(
+                    processing_image_b64, 
+                    mask_b64, 
+                    image_size=image_np.shape,
+                    region_count=len(processing_regions),
+                    task_id=task_id,
+                    **kwargs
+                )
             )
+            
+            # Simulate progress while real processing happens
+            async def progress_simulation():
+                for i, region in enumerate(processing_regions, 1):
+                    await tracker.update_inpainting_progress(i, 0)
+                    await asyncio.sleep(0.03)  # Simulate processing time per region
+                    await tracker.update_inpainting_progress(i, 50)
+                    await asyncio.sleep(0.03)
+                    await tracker.update_inpainting_progress(i, 100)
+            
+            # Run progress simulation to 90%
+            progress_task = asyncio.create_task(progress_simulation())
+            await progress_task
+            
+            # At 90%, synchronize with real processing
+            if real_processing_task.done():
+                # Processing finished quickly, add natural delay
+                logger.info(f"Task {task_id}: IOPaint processing completed quickly, adding natural delay...")
+                await asyncio.sleep(0.5)  # Natural feeling delay
+                try:
+                    result_bytes = real_processing_task.result()
+                except Exception as e:
+                    # Re-raise the exception from the real processing task
+                    raise e
+            else:
+                # Processing is still running, wait for completion
+                logger.info(f"Task {task_id}: Waiting for IOPaint processing to complete...")
+                result_bytes = await real_processing_task
             resource_monitor.end_processing_phase("ai_inpainting")
             
             # Stage 4: Finalization (90-100%)
@@ -768,12 +847,23 @@ class IOPaintCore:
             
             await tracker.update_finalizing_progress(30, "Saving processed image...")
             
+            # Scale result back to original size if we scaled down
+            if scaling_info['scaling_needed']:
+                logger.info(f"Task {task_id}: Scaling result image back to original size...")
+                await tracker.update_finalizing_progress(50, "Upscaling result to original size...")
+                
+                final_result_bytes = image_scaler.scale_result_back(
+                    result_bytes, original_size, new_size
+                )
+            else:
+                final_result_bytes = result_bytes
+            
             # Save result to temporary file
             import tempfile
             import os
             
             with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
-                tmp_file.write(result_bytes)
+                tmp_file.write(final_result_bytes)
                 result_path = tmp_file.name
             
             await tracker.update_finalizing_progress(80, "Finalizing result...")
@@ -784,7 +874,7 @@ class IOPaintCore:
             
             # Send HTTP callback if URL provided
             if callback_url:
-                await self._send_completion_callback(callback_url, task_id, result_bytes)
+                await self._send_completion_callback(callback_url, task_id, final_result_bytes)
             
             # Stop resource monitoring and log final metrics
             final_metrics = await resource_monitor.stop_monitoring()

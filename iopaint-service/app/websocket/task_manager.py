@@ -56,17 +56,26 @@ class TaskInfo:
     @property
     def estimated_remaining(self) -> Optional[float]:
         """Estimate remaining time based on current progress."""
-        if self.overall_progress <= 0:
+        try:
+            # Check for valid progress value
+            if not self.overall_progress or self.overall_progress <= 0 or self.overall_progress != self.overall_progress:
+                return None
+            
+            elapsed = self.elapsed_time
+            if elapsed <= 0:
+                return None
+            
+            # Calculate estimated total time based on current progress (safe division)
+            progress_ratio = max(0.01, min(1.0, self.overall_progress / 100.0))  # Prevent division by zero
+            estimated_total = elapsed / progress_ratio
+            remaining = estimated_total - elapsed
+            
+            # Return safe value
+            result = max(0, remaining)
+            return result if result == result else None  # NaN check
+            
+        except (ValueError, ZeroDivisionError, TypeError):
             return None
-        
-        elapsed = self.elapsed_time
-        if elapsed <= 0:
-            return None
-        
-        # Calculate estimated total time based on current progress
-        estimated_total = elapsed / (self.overall_progress / 100)
-        remaining = estimated_total - elapsed
-        return max(0, remaining)
 
 
 class TaskManager:
@@ -298,22 +307,41 @@ class TaskManager:
             task: Task information
             
         Returns:
-            Overall progress (0-100)
+            Overall progress (0-100), guaranteed to be a valid float
         """
-        stage_start, stage_end = self.stage_weights[task.stage]
-        stage_range = stage_end - stage_start
-        
-        if task.stage == ProcessingStage.INPAINTING and task.total_regions > 0:
-            # For inpainting stage, calculate based on region progress
-            if task.current_region > 0:
-                region_base_progress = ((task.current_region - 1) / task.total_regions) * stage_range
-                region_detail_progress = (task.stage_progress / 100) * (stage_range / task.total_regions)
-                return stage_start + region_base_progress + region_detail_progress
+        try:
+            stage_start, stage_end = self.stage_weights[task.stage]
+            stage_range = max(1, stage_end - stage_start)  # Prevent zero range
+            
+            # Ensure stage_progress is valid and convert to float
+            stage_progress = float(task.stage_progress or 0.0)
+            stage_progress = max(0.0, min(100.0, stage_progress))
+            
+            if task.stage == ProcessingStage.INPAINTING and task.total_regions > 0:
+                # For inpainting stage, calculate based on current region and region progress
+                if task.current_region > 0:
+                    # Calculate progress based on completed regions + current region progress
+                    completed_regions = max(0, task.current_region - 1)
+                    completed_progress = (completed_regions / task.total_regions) * stage_range
+                    current_region_progress = (stage_progress / 100.0) * (stage_range / task.total_regions)
+                    overall_progress = stage_start + completed_progress + current_region_progress
+                else:
+                    # Fallback to simple stage progress
+                    overall_progress = stage_start + (stage_progress / 100.0) * stage_range
             else:
-                return stage_start + (task.stage_progress / 100) * stage_range
-        else:
-            # For other stages, use stage progress directly
-            return stage_start + (task.stage_progress / 100) * stage_range
+                # For other stages, use stage progress directly
+                overall_progress = stage_start + (stage_progress / 100.0) * stage_range
+            
+            # Ensure result is valid float within bounds
+            overall_progress = float(overall_progress)
+            overall_progress = max(0.0, min(100.0, overall_progress))
+            
+            # Return safe value (no NaN check needed due to controlled calculation)
+            return overall_progress
+            
+        except (ValueError, ZeroDivisionError, TypeError, AttributeError) as e:
+            logger.warning(f"Progress calculation error: {e}, returning 0.0")
+            return 0.0
     
     async def _broadcast_progress(self, task_id: str):
         """
@@ -356,13 +384,16 @@ class TaskManager:
             }
         else:
             # Progress update for ongoing tasks
+            # Ensure progress is a clean float value (no NaN check needed since _calculate_overall_progress guarantees valid float)
+            progress_value = round(task.overall_progress, 1)
+            
             message = {
                 "type": "progress_update",
                 "task_id": task_id,
                 "session_id": None,  # Will be filled by backend mapping
                 "status": task.status.value,
                 "stage": task.stage.value,
-                "progress": round(task.overall_progress, 1),
+                "progress": progress_value,
                 "message": task.message,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "current_region": task.current_region,

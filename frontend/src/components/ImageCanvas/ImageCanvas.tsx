@@ -9,6 +9,8 @@ import { clsx } from 'clsx';
 import { Card } from '@/components/ui/Card';
 import { LaserScanAnimation } from '@/components/ui/LaserScanAnimation';
 import { TextClassificationLegend } from '@/components/ui/TextClassificationLegend';
+import { useProcessingProgress } from '@/hooks/useProcessingProgress';
+import { apiService } from '@/services/api';
 import { Loader2 } from 'lucide-react';
 import { 
   calculatePreviewFontSize, 
@@ -52,7 +54,10 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
     settings,
     processingState,
     getCurrentDisplayRegions,
-    currentTaskId
+    currentTaskId,
+    setCurrentTaskId,
+    setCurrentSession,
+    setImageDisplayMode
   } = useAppStore();
   const { 
     canvasRef, 
@@ -64,6 +69,38 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
   } = useCanvas();
   
   const stageRef = useRef<any>(null);
+
+  // Processing progress data for laser scan animation
+  const progressData = useProcessingProgress({
+    taskId: currentTaskId,
+    onComplete: async (result) => {
+      console.log('✅ Processing completed:', result);
+      
+      // Refresh session to get the latest data (including processed image)
+      if (currentSession) {
+        try {
+          const updatedSession = await apiService.getSession(currentSession.id);
+          setCurrentSession(updatedSession);
+          setImageDisplayMode('processed');
+        } catch (error) {
+          console.error('Failed to refresh session after completion:', error);
+          // Still switch to processed mode even if refresh fails
+          setImageDisplayMode('processed');
+        }
+      }
+      
+      // Clear task ID
+      setCurrentTaskId(null);
+    },
+    onCancel: () => {
+      console.log('❌ Processing cancelled');
+      setCurrentTaskId(null);
+    },
+    onError: (error) => {
+      console.error('💥 Processing failed:', error);
+      setCurrentTaskId(null);
+    }
+  });
   
   // Determine image URL based on display mode and session state
   const getImageUrl = () => {
@@ -1286,7 +1323,13 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
           <TextClassificationLegend />
         </div>
 
-        {/* Progress is now handled by WebSocketProgressBar in App component */}
+        {/* Laser Scan Animation - overlay when processing */}
+        <LaserScanAnimation
+          isActive={progressData.isActive}
+          progress={progressData.progress}
+          stage={progressData.stage}
+          message={progressData.message}
+        />
       </div>
     </Card>
   );

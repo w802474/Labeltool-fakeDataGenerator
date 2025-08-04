@@ -1,16 +1,21 @@
 # IOPaint Text Removal Service
 
-A standalone microservice for advanced text inpainting and removal using IOPaint. This service provides REST API endpoints for removing text from images with high-quality background preservation.
+**🌍 [中文](README.zh-CN.md) | [日本語](README.ja.md) | English**
 
-## 🚀 Features
+🎯 **Professional microservice for advanced text inpainting and removal using IOPaint 1.6.0**
 
-- **Advanced Text Removal**: Uses IOPaint with LAMA model for state-of-the-art inpainting
-- **Multiple Input Methods**: Support for mask-based and region-based inpainting
-- **RESTful API**: Clean HTTP API for easy integration
-- **Docker Ready**: Containerized for easy deployment and scaling
-- **Model Flexibility**: Support for multiple IOPaint models (LAMA, LDM, ZITS, etc.)
-- **GPU Acceleration**: Optional CUDA support for faster processing
-- **Health Monitoring**: Built-in health check and service monitoring
+A production-ready, standalone microservice that provides powerful text removal capabilities with real-time progress tracking. Designed for easy integration into any application requiring high-quality text inpainting from images.
+
+## ✨ Key Features
+
+- 🔧 **Advanced Text Removal**: State-of-the-art IOPaint with LAMA model for seamless background preservation
+- 🚀 **Real-time Processing**: WebSocket-based progress tracking for long-running tasks  
+- 🎛️ **Multiple Processing Modes**: Synchronous, asynchronous, and batch processing support
+- 🎨 **Flexible Input Methods**: Mask-based, region-based, and coordinate-based inpainting
+- 🏗️ **Production Ready**: Docker containerization, health monitoring, and comprehensive error handling
+- ⚡ **Performance Optimized**: GPU acceleration, memory management, and intelligent image scaling
+- 🔌 **Easy Integration**: RESTful API with OpenAPI documentation and multiple SDKs
+- 📊 **Advanced Monitoring**: Resource tracking, diagnostics, and processing analytics
 
 ## 📋 API Endpoints
 

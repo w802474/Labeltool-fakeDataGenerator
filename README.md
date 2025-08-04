@@ -1,163 +1,499 @@
 # LabelTool - Intelligent Text Detection & Removal Tool
 
-*[English](README.md) | [中文文档](README.zh-CN.md) | [日本語ドキュメント](README.ja.md)*
+**🌍 [中文](README.zh-CN.md) | [日本語](README.ja.md) | English**
 
-A comprehensive web-based tool for intelligent text processing with **dual-mode editing system**: OCR text detection/correction and advanced text generation with AI-powered inpainting. Now featuring a **microservice architecture** for better scalability and maintainability.
+A comprehensive web-based intelligent text annotation and processing tool that provides complete text processing workflows: from automatic detection to manual adjustment, intelligent removal, and smart text generation. Built with modern microservice architecture for scalability and maintainability.
+
+## 🎯 Project Overview
+
+LabelTool is a production-ready intelligent text processing platform that combines cutting-edge AI models with intuitive user interfaces to deliver professional text annotation and removal capabilities:
+
+### 🔄 Complete Processing Workflow
+1. **Automatic Text Detection** using PaddleOCR with high precision
+2. **Manual Text Region Adjustment** with intuitive drag-and-drop interface  
+3. **Text Removal with Advanced Inpainting** using IOPaint for seamless background preservation
+4. **Text Generation and Replacement** allowing users to add custom text to processed images
+5. **Dual-Mode Editing System** supporting both OCR editing and processed image text generation
+
+### 🏗️ Modern Architecture
+- **Microservice Architecture**: Separate services for better scalability and resource management
+- **Domain-Driven Design**: Clean separation of concerns with DDD patterns in backend
+- **Real-time Processing**: WebSocket-based progress tracking for long-running tasks
+- **Production Ready**: Docker containerization with comprehensive monitoring and error handling
 
 ## ✨ Key Features
 
-- 🤖 **Advanced OCR**: PaddleOCR with PP-OCRv5 models for high-precision text detection
-- 🖼️ **AI Text Removal**: IOPaint LAMA model for seamless background preservation
-- ✨ **Text Generation**: Custom text rendering with font analysis and precise positioning
-- 🎨 **Interactive Canvas**: Konva.js-powered drag-and-drop text region editing
-- ↩️ **Dual Undo/Redo**: Separate command histories for OCR and processed modes
-- 🏗️ **Microservice Architecture**: Separate services for better scalability and resource management
-- 🐳 **Docker Ready**: Full-stack containerization with persistent model caching
-- 📱 **Responsive Design**: Works seamlessly on desktop and tablet devices
+### 🤖 Advanced AI Capabilities
+- **High-Precision OCR**: PaddleOCR with PP-OCRv5 models for accurate text detection
+- **State-of-the-Art Inpainting**: IOPaint LAMA model for seamless background preservation
+- **Intelligent Font Analysis**: Automatic font property detection for text generation
+- **Smart Image Scaling**: Automatic optimization for large images
 
-## 🚀 Quick Start (Recommended)
+### 🎨 Interactive User Experience
+- **Interactive Canvas**: Konva.js-powered drag-and-drop text region editing
+- **Dual-Mode System**: Separate editing modes for OCR correction and text generation
+- **Advanced Undo/Redo**: Command-pattern based operation history with mode separation
+- **Real-time Progress**: Live WebSocket updates during processing
+- **Responsive Design**: Optimized for desktop and tablet devices
 
-### Using Docker Compose (Easiest)
+### 🏗️ Technical Excellence
+- **Microservice Architecture**: Independent services for scalability
+- **Production Ready**: Comprehensive error handling, health monitoring, and diagnostics
+- **Docker Native**: Full containerization with persistent model caching
+- **Performance Optimized**: GPU acceleration, memory management, and intelligent resource usage
+
+## 🚀 Quick Start
+
+### Using Docker Compose (Recommended)
 
 ```bash
-# Clone and start the application
+# Clone the repository
 git clone <repository-url>
-cd labeltool
+cd labeltool-fakeDataGenerator
+
+# Start all services
 docker-compose up --build
 
-# Access the application (3-service architecture)
+# Access the application
 # Frontend: http://localhost:3000
-# Backend API: http://localhost:8000
-# IOPaint Service: http://localhost:8081
-# API Docs: http://localhost:8000/docs
-# IOPaint Docs: http://localhost:8081/docs
+# Backend API: http://localhost:8000/docs
+# IOPaint Service: http://localhost:8081/docs
 ```
 
-That's it! The application will be fully running with all dependencies.
+That's it! The application will be fully running with all AI models and dependencies.
 
-## 💻 Local Development Setup
+### Performance Notes
+- **First Run**: Downloads AI models (~2-3GB), may take 5-10 minutes
+- **Subsequent Runs**: Models are cached, startup is much faster
+- **GPU Support**: Enable CUDA for faster processing (see configuration)
 
-### Prerequisites
-- Docker & Docker Compose (recommended)
-- *OR* Python 3.11+ & Node.js 18+ (for local development)
+## 🏗️ Architecture Overview
 
-### Option 1: Docker Development
-```bash
-# Run backend only
-docker-compose up backend
-
-# Run specific service for development
-cd frontend && npm run dev  # Frontend dev server on :5173
-```
-
-### Option 2: Local Development
-```bash
-# Backend
-cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-
-# Frontend (new terminal)
-cd frontend
-npm install
-npm run dev
-```
-
-## 🎯 How to Use
-
-1. **Upload Image**: Drag and drop an image (JPEG, PNG, WEBP, max 50MB)
-2. **Auto Detection**: PaddleOCR automatically detects text regions
-3. **Edit Regions**: 
-   - **OCR Mode**: Adjust boundaries, correct text
-   - **Processed Mode**: Add custom text for generation
-4. **Process**: Remove text with AI inpainting (IOPaint LAMA model)
-5. **Generate Text**: Render custom text with font-aware positioning
-6. **Download**: Get your processed image
-
-## 🛠️ Technology Stack
-
-**Frontend**: React 18 + TypeScript + Konva.js + Zustand + Tailwind CSS  
-**Backend**: FastAPI + Python 3.11 + PaddleOCR + HTTP Client  
-**IOPaint Service**: FastAPI + IOPaint 1.6.0 + LAMA Model  
-**AI Models**: PP-OCRv5 (text detection) + LAMA (inpainting)  
-**Architecture**: Microservices with Docker Compose orchestration
-
-## 🏗️ Microservice Architecture
-
+### Microservice Architecture
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   Frontend      │    │    Backend      │    │ IOPaint Service│
 │   (React App)   │────│  (FastAPI)      │────│   (FastAPI)     │
 │   Port: 3000    │    │   Port: 8000    │    │   Port: 8081    │  
 │                 │    │                 │    │                 │
-│ - User Interface│    │ - OCR Detection │    │ - Text Removal  │
-│ - Canvas Editor │    │ - Session Mgmt  │    │ - LAMA Model    │
-│ - File Upload   │    │ - API Gateway   │    │ - Inpainting    │
+│ • User Interface│    │ • OCR Detection │    │ • Text Removal  │
+│ • Canvas Editor │    │ • Session Mgmt  │    │ • LAMA Model    │
+│ • File Upload   │    │ • API Gateway   │    │ • Image Repair  │
+│ • State Mgmt    │    │ • Business Logic│    │ • Progress Track│
 └─────────────────┘    └─────────────────┘    └─────────────────┘
+        │                        │                        │
+        └─────────── WebSocket & HTTP/REST ───────────────┘
 ```
 
-**Benefits of this architecture**:
-- **Service Isolation**: Each service can be developed, deployed, and scaled independently
-- **Resource Optimization**: IOPaint can use dedicated GPU resources
-- **Fault Tolerance**: Failure in one service doesn't crash the entire system
-- **Reusability**: IOPaint service can be used by other applications
+### Service Responsibilities
 
-## 🔧 API Endpoints
+**Frontend Service**:
+- React 18 + TypeScript + Vite
+- Interactive Konva.js canvas for region editing
+- Zustand state management with undo/redo system
+- Real-time WebSocket progress tracking
+- Responsive Tailwind CSS design
+
+**Backend Service**:
+- FastAPI + Python 3.11 with DDD architecture
+- PaddleOCR integration for text detection
+- Session and task management
+- IOPaint service client integration
+- RESTful API with comprehensive documentation
+
+**IOPaint Service** ([📖 Detailed Documentation](iopaint-service/README.md)):
+- Independent FastAPI microservice
+- IOPaint 1.6.0 with LAMA model
+- Advanced image inpainting capabilities
+- Resource monitoring and optimization
+- Standalone deployment capability
+
+## 🛠️ Technology Stack
+
+### Frontend Technologies
+- **Framework**: React 18 + TypeScript + Vite
+- **Canvas**: Konva.js + react-konva for interactive editing
+- **State Management**: Zustand with persistence and undo/redo
+- **Styling**: Tailwind CSS with custom components
+- **HTTP Client**: Axios with interceptors
+- **File Upload**: React-Dropzone with progress tracking
+- **Testing**: Jest + React Testing Library
+
+### Backend Technologies
+- **Framework**: FastAPI + Python 3.11 + Pydantic v2
+- **OCR Engine**: PaddleOCR (latest with PP-OCRv5 models)
+- **Image Processing**: OpenCV + Pillow + NumPy
+- **Architecture**: Domain-Driven Design (DDD)
+- **Async Processing**: aiohttp + WebSocket support
+- **Configuration**: Pydantic Settings with environment variables
+- **Logging**: Loguru with structured logging
+
+### IOPaint Service Technologies
+- **Framework**: FastAPI + Python 3.11
+- **AI Model**: IOPaint 1.6.0 with LAMA inpainting model
+- **Image Processing**: Advanced scaling and optimization
+- **Monitoring**: Resource tracking and diagnostics
+- **Error Handling**: Intelligent retry and recovery mechanisms
+
+### Infrastructure & DevOps
+- **Containerization**: Docker + Docker Compose
+- **Model Caching**: Persistent volumes for AI models
+- **Networking**: Bridge network with service discovery
+- **Health Monitoring**: Comprehensive health checks
+- **Volume Management**: Shared storage for images and cache
+
+## 🎯 User Workflows
+
+### 1. Basic Text Removal Workflow
+```
+Upload Image → OCR Detection → Manual Adjustment → AI Inpainting → Download Result
+     ↓              ↓                ↓                ↓              ↓
+  Validation   Text Regions    Drag & Drop      LAMA Model     PNG Export
+```
+
+### 2. Advanced Text Generation Workflow
+```
+Upload Image → OCR Detection → AI Inpainting → Text Generation → Download Result
+     ↓              ↓               ↓              ↓                ↓
+  Validation   Text Regions    Background      Font Analysis   Enhanced Image
+                                Removal         + Positioning
+```
+
+### 3. Dual-Mode Editing System
+
+**OCR Mode**:
+- Edit detected text content
+- Adjust text region boundaries
+- Correct OCR recognition errors
+- Perfect for text annotation and correction
+
+**Processed Mode**:
+- Work with inpainted background images
+- Add custom text with intelligent positioning
+- Font-aware text rendering
+- Ideal for text replacement and enhancement
+
+## 🔌 API Documentation
 
 ### Main Backend API (Port 8000)
+
+**Session Management**:
 ```bash
-# Create session with image upload
-POST /api/v1/sessions
-
-# Process text removal (calls IOPaint service internally)
-POST /api/v1/sessions/{id}/process
-
-# Generate custom text
-POST /api/v1/sessions/{id}/generate-text
-
-# Download result
-GET /api/v1/sessions/{id}/result
+POST   /api/v1/sessions                    # Create session with OCR detection
+GET    /api/v1/sessions/{id}               # Get session details
+PUT    /api/v1/sessions/{id}/regions       # Update text regions (dual-mode)
+DELETE /api/v1/sessions/{id}               # Clean up session and files
 ```
 
-### IOPaint Service API (Port 8081) 
+**Processing Endpoints**:
 ```bash
-# Health check
-GET /api/v1/health
-
-# Service information
-GET /api/v1/info
-
-# Text inpainting with regions
-POST /api/v1/inpaint-regions
+POST   /api/v1/sessions/{id}/process-async # Start async text removal
+GET    /api/v1/tasks/{id}/status           # Get processing status
+POST   /api/v1/tasks/{id}/cancel           # Cancel processing task
 ```
 
-**Documentation**:
-- Main API: http://localhost:8000/docs
-- IOPaint Service: http://localhost:8081/docs
-
-## 📖 Documentation
-
-- [Docker Deployment Guide](DOCKER.md) - Complete Docker setup and deployment instructions
-
-## 🛠️ Troubleshooting
-
-**Docker issues**:
+**Text Generation**:
 ```bash
-# Check if Docker is running
-docker --version
-docker-compose --version
+POST   /api/v1/sessions/{id}/generate-text # Generate text in regions
+POST   /api/v1/sessions/{id}/preview-text  # Preview text generation
+```
 
-# View logs for each service
-docker-compose logs frontend
-docker-compose logs backend  
-docker-compose logs iopaint-service
+**File Operations**:
+```bash
+GET    /api/v1/sessions/{id}/image         # Get original image
+GET    /api/v1/sessions/{id}/result        # Download processed result
+```
 
-# View all services status
+### IOPaint Service API (Port 8081)
+
+For detailed IOPaint service documentation, see: **[IOPaint Service Documentation](iopaint-service/README.md)**
+
+**Core Endpoints**:
+```bash
+GET    /api/v1/health                      # Health check with diagnostics
+GET    /api/v1/info                        # Service information
+POST   /api/v1/inpaint-regions            # Text inpainting with regions
+POST   /api/v1/inpaint-regions-json       # Inpainting with statistics
+```
+
+## 💻 Development Setup
+
+### Local Development
+
+**Prerequisites**:
+- Docker & Docker Compose (recommended)
+- Python 3.11+ & Node.js 18+ (for local development)
+- Git for version control
+
+**Option 1: Docker Development**
+```bash
+# Full stack development
+docker-compose up --build
+
+# Backend only
+docker-compose up backend iopaint-service
+
+# Frontend development server
+cd frontend && npm run dev  # Port 5173 with hot reload
+```
+
+**Option 2: Local Development**
+```bash
+# Backend setup
+cd backend
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# IOPaint service setup (new terminal)
+cd iopaint-service
+pip install -r requirements.txt
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8081 --reload
+
+# Frontend setup (new terminal)
+cd frontend
+npm install
+npm run dev
+```
+
+### Testing
+
+**Backend Testing**:
+```bash
+cd backend
+pytest tests/ -v --cov=app
+```
+
+**Frontend Testing**:
+```bash
+cd frontend
+npm run test        # Run tests
+npm run test:watch  # Watch mode
+npm run test:coverage  # Coverage report
+```
+
+**Integration Testing**:
+```bash
+# Test full workflow with Docker
+docker-compose up -d
+curl http://localhost:8000/api/v1/health
+curl http://localhost:8081/api/v1/health
+```
+
+## 🚢 Production Deployment
+
+### Docker Production Setup
+
+```bash
+# Production build
+docker-compose -f docker-compose.prod.yml up --build -d
+
+# With GPU support
+docker-compose -f docker-compose.gpu.yml up --build -d
+
+# Monitor services
+docker-compose logs -f
 docker-compose ps
 ```
 
-**Performance**: First run downloads AI models (~2GB). Subsequent runs are much faster.
+### Environment Configuration
 
-**Memory**: Large images are automatically resized. Use smaller images if you encounter memory issues.
+**Backend Environment**:
+```env
+# OCR Configuration
+PADDLEOCR_DEVICE=cpu          # cpu/cuda
+PADDLEOCR_LANG=en             # Language support
+
+# IOPaint Service
+IOPAINT_SERVICE_URL=http://iopaint-service:8081
+IOPAINT_TIMEOUT=300           # Processing timeout
+
+# Application Settings
+MAX_FILE_SIZE=52428800        # 50MB max upload
+LOG_LEVEL=INFO                # Logging level
+```
+
+**IOPaint Service Environment**:
+```env
+# Model Configuration
+IOPAINT_MODEL=lama            # AI model selection
+IOPAINT_DEVICE=cpu            # cpu/cuda/mps
+IOPAINT_LOW_MEM=true          # Memory optimization
+
+# Performance Settings
+MAX_IMAGE_SIZE=2048           # Max dimension
+REQUEST_TIMEOUT=300           # Processing timeout
+```
+
+## 📊 Monitoring & Observability
+
+### Health Monitoring
+
+**Service Health Checks**:
+```bash
+# Main application health
+curl http://localhost:8000/api/v1/health
+
+# IOPaint service health
+curl http://localhost:8081/api/v1/health
+
+# Docker health status
+docker-compose ps
+```
+
+**Processing Metrics**:
+- Real-time progress tracking via WebSocket
+- Processing time and resource usage
+- Error rates and retry statistics
+- Model performance metrics
+
+### Logging
+
+**Structured Logging**:
+- JSON-formatted logs for production
+- Request/response tracing
+- Error tracking with stack traces
+- Performance metrics logging
+
+**Log Access**:
+```bash
+# View service logs
+docker-compose logs -f backend
+docker-compose logs -f iopaint-service
+docker-compose logs -f frontend
+
+# Export logs
+docker-compose logs --no-color > application.log
+```
+
+## 🔧 Configuration & Customization
+
+### OCR Configuration
+
+**PaddleOCR Settings**:
+```python
+OCR_CONFIG = {
+    "det_db_thresh": 0.3,        # Detection threshold
+    "det_db_box_thresh": 0.6,    # Bounding box threshold
+    "det_limit_side_len": 1920,  # Max image dimension
+    "use_angle_cls": True,       # Text angle classification
+    "lang": "en"                 # Language support
+}
+```
+
+### IOPaint Configuration
+
+**Model Options**:
+- **lama** (default): Best quality inpainting
+- **ldm**: Latent Diffusion Model
+- **zits**: Fast processing
+- **mat**: Mask-Aware Transformer
+- **fcf**: Fourier Convolutions
+- **manga**: Specialized for anime/manga
+
+**Performance Tuning**:
+```env
+IOPAINT_LOW_MEM=true          # Enable for limited memory
+IOPAINT_CPU_OFFLOAD=true      # CPU/GPU load balancing
+MAX_IMAGE_SIZE=2048           # Reduce for faster processing
+```
+
+## 🛠️ Troubleshooting
+
+### Common Issues
+
+**1. Service Startup Issues**
+```bash
+# Check Docker status
+docker --version
+docker-compose --version
+
+# View service logs
+docker-compose logs backend
+docker-compose logs iopaint-service
+
+# Restart services
+docker-compose restart
+```
+
+**2. Model Download Issues**
+```bash
+# Check internet connection
+curl -I https://huggingface.co
+
+# Clear model cache
+rm -rf volumes/huggingface_cache/*
+rm -rf volumes/paddlex_cache/*
+
+# Rebuild with fresh models
+docker-compose down -v
+docker-compose up --build
+```
+
+**3. Performance Issues**
+```bash
+# Enable GPU support
+docker-compose -f docker-compose.gpu.yml up
+
+# Reduce image size limits
+# Edit environment variables:
+# MAX_IMAGE_SIZE=1024
+# MAX_FILE_SIZE=10485760  # 10MB
+```
+
+**4. Memory Issues**
+```bash
+# Enable low memory mode
+# IOPaint service environment:
+IOPAINT_LOW_MEM=true
+IOPAINT_CPU_OFFLOAD=true
+
+# Reduce concurrent processing
+MAX_CONCURRENT_TASKS=1
+```
+
+### Getting Help
+
+**Logs and Diagnostics**:
+```bash
+# Generate diagnostic report
+docker-compose logs --no-color > diagnostic.log
+docker-compose ps >> diagnostic.log
+docker system df >> diagnostic.log
+
+# Check resource usage
+docker stats
+```
+
+**Common Solutions**:
+- First run takes longer due to model downloads
+- Use smaller images if memory is limited
+- Enable GPU support for faster processing
+- Check firewall settings for port access
+
+## 📖 Additional Documentation
+
+- **[IOPaint Service](iopaint-service/README.md)** - Detailed service documentation
+- **[Docker Deployment](DOCKER.md)** - Complete deployment guide
+- **[API Reference](http://localhost:8000/docs)** - Interactive API documentation
+- **[Development Guide](docs/DEVELOPMENT.md)** - Contribution guidelines
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our contributing guidelines for details on:
+- Code style and standards
+- Testing requirements
+- Pull request process
+- Issue reporting
+
+## 📝 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🙏 Acknowledgments
+
+- **PaddleOCR Team** for the excellent OCR models
+- **IOPaint Developers** for the state-of-the-art inpainting capabilities
+- **React & FastAPI Communities** for the robust frameworks
+- **Docker** for containerization support
