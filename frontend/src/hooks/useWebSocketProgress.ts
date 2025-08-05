@@ -350,15 +350,31 @@ export function useWebSocketProgress(
     if (success) {
       subscriptionsRef.current.add(taskId);
       
-      setProgress(prev => ({
-        ...prev,
-        taskId,
-        status: 'pending',
-        stage: 'preparing',
-        progress: 0,
-        message: 'Subscribing to task progress...',
-        startTime: new Date()
-      }));
+      setProgress(prev => {
+        // If this is a different task or we were previously completed, reset completion states
+        const isNewTask = prev.taskId !== taskId;
+        const shouldResetCompletion = isNewTask || prev.isCompleted || prev.isFailed || prev.isCancelled;
+        
+        return {
+          ...prev,
+          taskId,
+          status: 'pending',
+          stage: 'preparing',
+          progress: 0,
+          message: 'Subscribing to task progress...',
+          startTime: new Date(),
+          // Reset completion states for new tasks
+          ...(shouldResetCompletion && {
+            isCompleted: false,
+            isFailed: false,
+            isCancelled: false,
+            error: null,
+            result: null,
+            endTime: null,
+            duration: null
+          })
+        };
+      });
       
       if (debug) console.log('[WebSocketProgress] Subscribed to task:', taskId);
     }
