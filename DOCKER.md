@@ -2,14 +2,14 @@
 
 *[English](DOCKER.md) | [中文文档](DOCKER.zh-CN.md) | [日本語ドキュメント](DOCKER.ja.md)*
 
-This document describes how to use Docker to run the LabelTool project with **microservice architecture** (3 services: Frontend, Backend, IOPaint Service).
+This document describes how to use Docker to run the **LabelTool - Intelligent Text Detection & Removal Tool** project with **microservice architecture** (3 services: Frontend, Backend, IOPaint Service).
 
 ## 🚀 Quick Start
 
 ### 1. Clone the project and enter the directory
 ```bash
 git clone <your-repo-url>
-cd labeltool
+cd Labeltool-fakeDataGenerator
 ```
 
 ### 2. Environment configuration (optional)
@@ -53,24 +53,29 @@ docker-compose up --build -d
 
 ### 🎯 IOPaint Service (labeltool-iopaint)
 - **Port**: 8081
-- **Tech Stack**: Python 3.11 + FastAPI + IOPaint 1.6.0 + LAMA Model
+- **Tech Stack**: Python 3.11 + FastAPI 0.108.0 + IOPaint 1.6.0 + LAMA Model
+- **Dependencies**: IOPaint, HuggingFace Hub, OpenCV, Pillow 9.5.0
 - **Function**: Advanced text inpainting and removal using AI
-- **Health Check**: ~60 seconds initialization (downloads LAMA model on first run)
-- **Dependencies**: None (fully independent service)
+- **Health Check**: ~60 seconds initialization (downloads LAMA model ~2GB on first run)
+- **Volume**: Persistent HuggingFace model cache (~2GB)
+- **Service Dependencies**: None (fully independent service)
 
 ### 🔧 Backend Service (labeltool-backend)
 - **Port**: 8000
-- **Tech Stack**: Python 3.11.13 + FastAPI + PaddleOCR + HTTP Client
+- **Tech Stack**: Python 3.11 + FastAPI 0.108.0 + PaddleOCR + Pydantic v2
+- **Dependencies**: PaddleOCR, PaddlePaddle, OpenCV, Pillow 9.5.0, WebSockets
 - **Function**: OCR text detection, session management, API orchestration
-- **Health Check**: ~40 seconds initialization
-- **Dependencies**: Requires IOPaint Service to be healthy
+- **Health Check**: ~40 seconds initialization (downloads PaddleOCR models on first run)
+- **Volume**: Persistent PaddleX model cache, uploads, processed files, logs
+- **Service Dependencies**: Requires IOPaint Service to be healthy
 
 ### 🎨 Frontend Service (labeltool-frontend)
-- **Port**: 3000
-- **Tech Stack**: React 18 + TypeScript + Nginx
-- **Function**: User interface and interactive canvas editing
-- **Dependencies**: Requires Backend Service to be healthy
-- **Dependencies**: Starts only after backend service health check passes
+- **Port**: 3000 (Nginx proxy)
+- **Tech Stack**: React 18 + TypeScript + Vite + Konva.js + Zustand
+- **Dependencies**: React-Konva, Axios, Tailwind CSS, Lucide React
+- **Function**: Interactive canvas editing, drag-and-drop file upload, real-time progress
+- **Build**: Multi-stage Docker build with Nginx serving static files
+- **Service Dependencies**: Starts only after backend service health check passes
 
 ## 🔧 Docker Command Reference
 
@@ -152,6 +157,7 @@ docker volume ls
 # View specific volume details
 docker volume inspect labeltool-fakedatagenerator_backend_uploads
 docker volume inspect labeltool-fakedatagenerator_huggingface_cache
+docker volume inspect labeltool-fakedatagenerator_paddlex_cache
 
 # Remove unused volumes
 docker volume prune
@@ -337,8 +343,13 @@ docker image prune
 
 ### Backup data
 ```bash
-# Backup volume data
-docker run --rm -v labeltool_backend_uploads:/data -v $(pwd):/backup alpine tar czf /backup/uploads-backup.tar.gz -C /data .
+# Backup backend uploads and processed files
+docker run --rm -v labeltool-fakedatagenerator_backend_uploads:/data -v $(pwd):/backup alpine tar czf /backup/uploads-backup.tar.gz -C /data .
+docker run --rm -v labeltool-fakedatagenerator_backend_processed:/data -v $(pwd):/backup alpine tar czf /backup/processed-backup.tar.gz -C /data .
+
+# Backup model caches (important for faster startup)
+docker run --rm -v labeltool-fakedatagenerator_huggingface_cache:/data -v $(pwd):/backup alpine tar czf /backup/iopaint-models-backup.tar.gz -C /data .
+docker run --rm -v labeltool-fakedatagenerator_paddlex_cache:/data -v $(pwd):/backup alpine tar czf /backup/paddleocr-models-backup.tar.gz -C /data .
 ```
 
 If you have any issues, please check the log files or contact the development team.

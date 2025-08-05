@@ -17,18 +17,28 @@
 - 🔌 **易于集成**: RESTful API 与 OpenAPI 文档和多种 SDK
 - 📊 **高级监控**: 资源跟踪、诊断和处理分析
 
-## 📋 API 端点
+## 📋 完整 API 参考
 
 ### 核心端点
 - `GET /` - 服务信息和状态
-- `GET /api/v1/health` - 健康检查
+- `GET /api/v1/health` - 带诊断信息的健康检查
 - `GET /api/v1/model` - 当前模型信息
-- `GET /api/v1/info` - 详细服务信息
+- `GET /api/v1/info` - 详细服务信息和功能
 
-### 修复端点
+### 同步修复
 - `POST /api/v1/inpaint` - 使用提供的掩码进行修复（返回图像二进制数据）
 - `POST /api/v1/inpaint-regions` - 使用文本区域进行修复（返回图像二进制数据）
 - `POST /api/v1/inpaint-regions-json` - 使用文本区域进行修复（返回 JSON 统计信息）
+
+### 异步处理
+- `POST /api/v1/inpaint-regions-async` - 启动带进度跟踪的异步修复
+- `GET /api/v1/task-status/{task_id}` - 获取任务状态和进度
+- `POST /api/v1/cancel-task/{task_id}` - 取消运行中的任务
+- `GET /api/v1/tasks` - 获取任务统计和队列状态
+
+### WebSocket 端点
+- `WS /api/v1/ws/progress/{task_id}` - 特定任务的实时进度更新
+- `WS /api/v1/ws/progress` - 所有任务的通用进度更新
 
 ### 文档
 - `GET /docs` - 交互式 API 文档（Swagger UI）
@@ -154,7 +164,7 @@ if response.status_code == 200:
         f.write(response.content)
 ```
 
-### 获取处理统计信息
+### 获取处理统计信息（JSON 响应）
 ```python
 response = requests.post(
     'http://localhost:8081/api/v1/inpaint-regions-json',
@@ -167,6 +177,127 @@ response = requests.post(
 stats = response.json()
 print(f"处理了 {stats['processing_stats']['regions_processed']} 个区域")
 print(f"处理时间: {stats['processing_stats']['processing_time']:.2f}秒")
+```
+
+### 带进度跟踪的异步处理
+```python
+import requests
+import uuid
+
+# 启动异步处理
+task_id = str(uuid.uuid4())
+response = requests.post(
+    'http://localhost:8081/api/v1/inpaint-regions-async',
+    json={
+        "image": image_b64,
+        "regions": regions,
+        "task_id": task_id,
+        "enable_progress": True
+    }
+)
+
+async_result = response.json()
+print(f"启动任务: {async_result['task_id']}")
+print(f"WebSocket URL: {async_result['websocket_url']}")
+
+# 检查任务状态
+status_response = requests.get(f'http://localhost:8081/api/v1/task-status/{task_id}')
+status = status_response.json()
+print(f"任务状态: {status['status']}")
+```
+
+### 后端服务集成
+
+此 IOPaint 服务设计为通过主后端 API 调用，而不是直接从前端应用程序调用。后端服务处理会话管理、文件存储，并协调完整的 OCR + 文本移除工作流程。
+
+#### 后端集成示例 (Python)
+```python
+# 后端服务如何与 IOPaint 集成
+# 文件: backend/app/infrastructure/clients/iopaint_client.py
+
+import aiohttp
+import base64
+
+class IOPaintClient:
+    def __init__(self, base_url="http://iopaint-service:8081"):
+        self.base_url = base_url
+    
+    async def inpaint_regions_async(self, image_path: str, text_regions: List[dict], task_id: str):
+        """启动异步文本移除处理。"""
+        # 将图像转换为 base64
+        async with aiofiles.open(image_path, 'rb') as f:
+            image_data = await f.read()
+            image_b64 = base64.b64encode(image_data).decode('utf-8')
+        
+        # 将区域转换为 IOPaint 格式
+        regions = []
+        for region in text_regions:
+            regions.append({
+                "x": region["bounding_box"]["x"],
+                "y": region["bounding_box"]["y"], 
+                "width": region["bounding_box"]["width"],
+                "height": region["bounding_box"]["height"]
+            })
+        
+        # 调用 IOPaint 服务
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{self.base_url}/api/v1/inpaint-regions-async",
+                json={
+                    "image": image_b64,
+                    "regions": regions,
+                    "task_id": task_id,
+                    "enable_progress": True
+                }
+            ) as response:
+                return await response.json()
+```
+
+#### WebSocket 进度集成 (后端)
+```python
+# 后端 WebSocket 中继到前端
+# 文件: backend/app/infrastructure/api/websocket_routes.py
+
+from fastapi import WebSocket
+import websockets
+import json
+
+async def relay_iopaint_progress(websocket: WebSocket, task_id: str):
+    """通过后端 WebSocket 将 IOPaint 进度中继到前端。"""
+    iopaint_ws_url = f"ws://iopaint-service:8081/api/v1/ws/progress/{task_id}"
+    
+    try:
+        async with websockets.connect(iopaint_ws_url) as iopaint_ws:
+            async for message in iopaint_ws:
+                # 将进度中继到前端
+                await websocket.send_text(message)
+    except Exception as e:
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "message": f"进度跟踪错误: {str(e)}"
+        }))
+```
+
+### 带自定义参数的高级用法
+```python
+# 带自定义参数的高级修复
+response = requests.post(
+    'http://localhost:8081/api/v1/inpaint-regions-async',
+    json={
+        "image": image_b64,
+        "regions": regions,
+        "task_id": task_id,
+        "enable_progress": True,
+        # 高级 IOPaint 参数
+        "sd_seed": 42,
+        "sd_steps": 20,
+        "sd_strength": 0.8,
+        "sd_guidance_scale": 7.5,
+        "hd_strategy": "Original",
+        "hd_strategy_crop_trigger_size": 1024,
+        "hd_strategy_crop_margin": 32
+    }
+)
 ```
 
 ## 🏗️ 开发

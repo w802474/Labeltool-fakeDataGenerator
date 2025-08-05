@@ -121,7 +121,7 @@ export const Header: React.FC<HeaderProps> = ({ showConfirm }) => {
               className="text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100"
             >
               <a
-                href="https://github.com/your-repo/labeltool"
+                href="https://github.com/w802474/Labeltool-fakeDataGenerator/tree/main"
                 target="_blank"
                 rel="noopener noreferrer"
                 title="View on GitHub"

@@ -25,10 +25,20 @@
 - `GET /api/v1/model` - 現在のモデル情報
 - `GET /api/v1/info` - 詳細なサービス情報
 
-### インペインティングエンドポイント
+### 同期インペインティング
 - `POST /api/v1/inpaint` - 提供されたマスクでインペインティング（画像バイナリを返す）
 - `POST /api/v1/inpaint-regions` - テキストリージョンでインペインティング（画像バイナリを返す）
 - `POST /api/v1/inpaint-regions-json` - テキストリージョンでインペインティング（JSON 統計を返す）
+
+### 非同期処理
+- `POST /api/v1/inpaint-regions-async` - 進捗追跡付き非同期インペインティングを開始
+- `GET /api/v1/task-status/{task_id}` - タスクステータスと進捗を取得
+- `POST /api/v1/cancel-task/{task_id}` - 実行中のタスクをキャンセル
+- `GET /api/v1/tasks` - タスク統計とキュー状態を取得
+
+### WebSocket エンドポイント
+- `WS /api/v1/ws/progress/{task_id}` - 特定タスクのリアルタイム進捗更新
+- `WS /api/v1/ws/progress` - すべてのタスクの一般的な進捗更新
 
 ### ドキュメント
 - `GET /docs` - インタラクティブ API ドキュメント（Swagger UI）
@@ -154,7 +164,7 @@ if response.status_code == 200:
         f.write(response.content)
 ```
 
-### 処理統計の取得
+### 処理統計の取得（JSON レスポンス）
 ```python
 response = requests.post(
     'http://localhost:8081/api/v1/inpaint-regions-json',
@@ -167,6 +177,127 @@ response = requests.post(
 stats = response.json()
 print(f"処理されたリージョン数: {stats['processing_stats']['regions_processed']}")
 print(f"処理時間: {stats['processing_stats']['processing_time']:.2f}秒")
+```
+
+### 進捗追跡付き非同期処理
+```python
+import requests
+import uuid
+
+# 非同期処理を開始
+task_id = str(uuid.uuid4())
+response = requests.post(
+    'http://localhost:8081/api/v1/inpaint-regions-async',
+    json={
+        "image": image_b64,
+        "regions": regions,
+        "task_id": task_id,
+        "enable_progress": True
+    }
+)
+
+async_result = response.json()
+print(f"タスク開始: {async_result['task_id']}")
+print(f"WebSocket URL: {async_result['websocket_url']}")
+
+# タスクステータスを確認
+status_response = requests.get(f'http://localhost:8081/api/v1/task-status/{task_id}')
+status = status_response.json()
+print(f"タスクステータス: {status['status']}")
+```
+
+### バックエンドサービス統合
+
+この IOPaint サービスは、フロントエンドアプリケーションから直接呼び出すのではなく、メインバックエンド API を通じて呼び出すように設計されています。バックエンドサービスはセッション管理、ファイルストレージを処理し、完全な OCR + テキスト除去ワークフローを調整します。
+
+#### バックエンド統合例 (Python)
+```python
+# バックエンドサービスが IOPaint と統合する方法
+# ファイル: backend/app/infrastructure/clients/iopaint_client.py
+
+import aiohttp
+import base64
+
+class IOPaintClient:
+    def __init__(self, base_url="http://iopaint-service:8081"):
+        self.base_url = base_url
+    
+    async def inpaint_regions_async(self, image_path: str, text_regions: List[dict], task_id: str):
+        """非同期テキスト除去処理を開始。"""
+        # 画像をbase64に変換
+        async with aiofiles.open(image_path, 'rb') as f:
+            image_data = await f.read()
+            image_b64 = base64.b64encode(image_data).decode('utf-8')
+        
+        # リージョンをIOPaint形式に変換
+        regions = []
+        for region in text_regions:
+            regions.append({
+                "x": region["bounding_box"]["x"],
+                "y": region["bounding_box"]["y"], 
+                "width": region["bounding_box"]["width"],
+                "height": region["bounding_box"]["height"]
+            })
+        
+        # IOPaintサービスを呼び出し
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{self.base_url}/api/v1/inpaint-regions-async",
+                json={
+                    "image": image_b64,
+                    "regions": regions,
+                    "task_id": task_id,
+                    "enable_progress": True
+                }
+            ) as response:
+                return await response.json()
+```
+
+#### WebSocket 進捗統合 (バックエンド)
+```python
+# バックエンドWebSocketからフロントエンドへのリレー
+# ファイル: backend/app/infrastructure/api/websocket_routes.py
+
+from fastapi import WebSocket
+import websockets
+import json
+
+async def relay_iopaint_progress(websocket: WebSocket, task_id: str):
+    """バックエンドWebSocketを通じてIOPaint進捗をフロントエンドにリレー。"""
+    iopaint_ws_url = f"ws://iopaint-service:8081/api/v1/ws/progress/{task_id}"
+    
+    try:
+        async with websockets.connect(iopaint_ws_url) as iopaint_ws:
+            async for message in iopaint_ws:
+                # 進捗をフロントエンドにリレー
+                await websocket.send_text(message)
+    except Exception as e:
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "message": f"進捗追跡エラー: {str(e)}"
+        }))
+```
+
+### カスタムパラメータでの高度な使用
+```python
+# カスタムパラメータでの高度なインペインティング
+response = requests.post(
+    'http://localhost:8081/api/v1/inpaint-regions-async',
+    json={
+        "image": image_b64,
+        "regions": regions,
+        "task_id": task_id,
+        "enable_progress": True,
+        # 高度なIOPaintパラメータ
+        "sd_seed": 42,
+        "sd_steps": 20,
+        "sd_strength": 0.8,
+        "sd_guidance_scale": 7.5,
+        "hd_strategy": "Original",
+        "hd_strategy_crop_trigger_size": 1024,
+        "hd_strategy_crop_margin": 32
+    }
+)
 ```
 
 ## 🏗️ 開発

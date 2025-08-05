@@ -15,7 +15,7 @@ class OCRConfigManager:
         Optimized for coordinate accuracy by disabling document preprocessing.
         """
         return {
-            'lang': 'en',
+            'lang': 'japan',
             'det_limit_side_len': 1280,
             'det_limit_type': 'max',
             # CRITICAL: Disable all document preprocessing to prevent coordinate offset
@@ -34,7 +34,7 @@ class OCRConfigManager:
         minimizing coordinate distortion.
         """
         return {
-            'lang': 'en',
+            'lang': 'japan',
             'det_limit_side_len': 1280,
             'det_limit_type': 'max',
             # Enable minimal document preprocessing

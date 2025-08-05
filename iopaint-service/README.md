@@ -17,18 +17,28 @@ A production-ready, standalone microservice that provides powerful text removal 
 - 🔌 **Easy Integration**: RESTful API with OpenAPI documentation and multiple SDKs
 - 📊 **Advanced Monitoring**: Resource tracking, diagnostics, and processing analytics
 
-## 📋 API Endpoints
+## 📋 Complete API Reference
 
 ### Core Endpoints
 - `GET /` - Service information and status
-- `GET /api/v1/health` - Health check
+- `GET /api/v1/health` - Health check with diagnostics
 - `GET /api/v1/model` - Current model information
-- `GET /api/v1/info` - Detailed service information
+- `GET /api/v1/info` - Detailed service information and capabilities
 
-### Inpainting Endpoints
+### Synchronous Inpainting
 - `POST /api/v1/inpaint` - Inpaint with provided mask (returns image binary)
 - `POST /api/v1/inpaint-regions` - Inpaint with text regions (returns image binary)
 - `POST /api/v1/inpaint-regions-json` - Inpaint with text regions (returns JSON stats)
+
+### Asynchronous Processing
+- `POST /api/v1/inpaint-regions-async` - Start async inpainting with progress tracking
+- `GET /api/v1/task-status/{task_id}` - Get task status and progress
+- `POST /api/v1/cancel-task/{task_id}` - Cancel running task
+- `GET /api/v1/tasks` - Get task statistics and queue status
+
+### WebSocket Endpoints
+- `WS /api/v1/ws/progress/{task_id}` - Real-time progress updates for specific task
+- `WS /api/v1/ws/progress` - General progress updates for all tasks
 
 ### Documentation
 - `GET /docs` - Interactive API documentation (Swagger UI)
@@ -125,7 +135,7 @@ networks:
 curl http://localhost:8081/api/v1/health
 ```
 
-### Inpainting with Regions
+### Synchronous Inpainting with Regions
 ```python
 import requests
 import base64
@@ -139,7 +149,7 @@ regions = [
     {"x": 150, "y": 200, "width": 150, "height": 25}
 ]
 
-# Send request
+# Send request for binary result
 response = requests.post(
     'http://localhost:8081/api/v1/inpaint-regions',
     json={
@@ -148,13 +158,13 @@ response = requests.post(
     }
 )
 
-# Save result
+# Save result image
 if response.status_code == 200:
     with open('result.png', 'wb') as f:
         f.write(response.content)
 ```
 
-### Get Processing Stats
+### Get Processing Stats (JSON Response)
 ```python
 response = requests.post(
     'http://localhost:8081/api/v1/inpaint-regions-json',
@@ -167,6 +177,127 @@ response = requests.post(
 stats = response.json()
 print(f"Processed {stats['processing_stats']['regions_processed']} regions")
 print(f"Processing time: {stats['processing_stats']['processing_time']:.2f}s")
+```
+
+### Asynchronous Processing with Progress Tracking
+```python
+import requests
+import uuid
+
+# Start async processing
+task_id = str(uuid.uuid4())
+response = requests.post(
+    'http://localhost:8081/api/v1/inpaint-regions-async',
+    json={
+        "image": image_b64,
+        "regions": regions,
+        "task_id": task_id,
+        "enable_progress": True
+    }
+)
+
+async_result = response.json()
+print(f"Started task: {async_result['task_id']}")
+print(f"WebSocket URL: {async_result['websocket_url']}")
+
+# Check task status
+status_response = requests.get(f'http://localhost:8081/api/v1/task-status/{task_id}')
+status = status_response.json()
+print(f"Task status: {status['status']}")
+```
+
+### Backend Service Integration
+
+This IOPaint service is designed to be called through the main backend API, not directly from frontend applications. The backend service handles session management, file storage, and coordinates the complete OCR + text removal workflow.
+
+#### Backend Integration Example (Python)
+```python
+# This is how the backend service integrates with IOPaint
+# File: backend/app/infrastructure/clients/iopaint_client.py
+
+import aiohttp
+import base64
+
+class IOPaintClient:
+    def __init__(self, base_url="http://iopaint-service:8081"):
+        self.base_url = base_url
+    
+    async def inpaint_regions_async(self, image_path: str, text_regions: List[dict], task_id: str):
+        """Start async text removal processing."""
+        # Convert image to base64
+        async with aiofiles.open(image_path, 'rb') as f:
+            image_data = await f.read()
+            image_b64 = base64.b64encode(image_data).decode('utf-8')
+        
+        # Convert regions to IOPaint format
+        regions = []
+        for region in text_regions:
+            regions.append({
+                "x": region["bounding_box"]["x"],
+                "y": region["bounding_box"]["y"], 
+                "width": region["bounding_box"]["width"],
+                "height": region["bounding_box"]["height"]
+            })
+        
+        # Call IOPaint service
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{self.base_url}/api/v1/inpaint-regions-async",
+                json={
+                    "image": image_b64,
+                    "regions": regions,
+                    "task_id": task_id,
+                    "enable_progress": True
+                }
+            ) as response:
+                return await response.json()
+```
+
+#### WebSocket Progress Integration (Backend)
+```python
+# Backend WebSocket relay to frontend
+# File: backend/app/infrastructure/api/websocket_routes.py
+
+from fastapi import WebSocket
+import websockets
+import json
+
+async def relay_iopaint_progress(websocket: WebSocket, task_id: str):
+    """Relay IOPaint progress to frontend through backend WebSocket."""
+    iopaint_ws_url = f"ws://iopaint-service:8081/api/v1/ws/progress/{task_id}"
+    
+    try:
+        async with websockets.connect(iopaint_ws_url) as iopaint_ws:
+            async for message in iopaint_ws:
+                # Relay progress to frontend
+                await websocket.send_text(message)
+    except Exception as e:
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "message": f"Progress tracking error: {str(e)}"
+        }))
+```
+
+### Advanced Usage with Custom Parameters
+```python
+# Advanced inpainting with custom parameters
+response = requests.post(
+    'http://localhost:8081/api/v1/inpaint-regions-async',
+    json={
+        "image": image_b64,
+        "regions": regions,
+        "task_id": task_id,
+        "enable_progress": True,
+        # Advanced IOPaint parameters
+        "sd_seed": 42,
+        "sd_steps": 20,
+        "sd_strength": 0.8,
+        "sd_guidance_scale": 7.5,
+        "hd_strategy": "Original",
+        "hd_strategy_crop_trigger_size": 1024,
+        "hd_strategy_crop_margin": 32
+    }
+)
 ```
 
 ## 🏗️ Development

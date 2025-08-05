@@ -2,14 +2,14 @@
 
 *[English](DOCKER.md) | [中文文档](DOCKER.zh-CN.md) | [日本語ドキュメント](DOCKER.ja.md)*
 
-このドキュメントは、DockerでLabelToolプロジェクトの**マイクロサービスアーキテクチャ**（3つのサービス：フロントエンド、バックエンド、IOPaintサービス）を実行する方法を説明します。
+このドキュメントは、Docker で **LabelTool - Intelligent Text Detection & Removal Tool** プロジェクトの**マイクロサービスアーキテクチャ**（3つのサービス：フロントエンド、バックエンド、IOPaintサービス）を実行する方法を説明します。
 
 ## 🚀 クイックスタート
 
 ### 1. プロジェクトをクローンしてディレクトリに移動
 ```bash
 git clone <your-repo-url>
-cd labeltool
+cd Labeltool-fakeDataGenerator
 ```
 
 ### 2. 環境設定（オプション）
@@ -53,23 +53,29 @@ docker-compose up --build -d
 
 ### 🎯 IOPaintサービス (labeltool-iopaint)
 - **ポート**: 8081
-- **技術スタック**: Python 3.11 + FastAPI + IOPaint 1.6.0 + LAMAモデル
+- **技術スタック**: Python 3.11 + FastAPI 0.108.0 + IOPaint 1.6.0 + LAMAモデル
+- **依存関係**: IOPaint、HuggingFace Hub、OpenCV、Pillow 9.5.0
 - **機能**: AIを使用した高度なテキストインペインティングと除去
-- **ヘルスチェック**: 初期化約60秒（初回実行時LAMAモデルダウンロード）
-- **依存関係**: なし（完全に独立したサービス）
+- **ヘルスチェック**: 初期化約60秒（初回実行時LAMAモデル約2GBダウンロード）
+- **ボリューム**: 永続HuggingFaceモデルキャッシュ（約2GB）
+- **サービス依存関係**: なし（完全に独立したサービス）
 
 ### 🔧 バックエンドサービス (labeltool-backend)
 - **ポート**: 8000
-- **技術スタック**: Python 3.11.13 + FastAPI + PaddleOCR + HTTPクライアント
+- **技術スタック**: Python 3.11 + FastAPI 0.108.0 + PaddleOCR + Pydantic v2
+- **依存関係**: PaddleOCR、PaddlePaddle、OpenCV、Pillow 9.5.0、WebSockets
 - **機能**: OCRテキスト検出、セッション管理、APIオーケストレーション
-- **ヘルスチェック**: 初期化約40秒
-- **依存関係**: IOPaintサービスがヘルシーである必要があります
+- **ヘルスチェック**: 初期化約40秒（初回実行時PaddleOCRモデルダウンロード）
+- **ボリューム**: 永続PaddleXモデルキャッシュ、アップロード、処理済みファイル、ログ
+- **サービス依存関係**: IOPaintサービスがヘルシーである必要があります
 
 ### 🎨 フロントエンドサービス (labeltool-frontend)
-- **ポート**: 3000
-- **技術スタック**: React 18 + TypeScript + Nginx
-- **機能**: ユーザーインターフェースとインタラクティブキャンバス編集
-- **依存関係**: バックエンドサービスのヘルスチェック通過後にのみ開始
+- **ポート**: 3000（Nginxプロキシ）
+- **技術スタック**: React 18 + TypeScript + Vite + Konva.js + Zustand
+- **依存関係**: React-Konva、Axios、Tailwind CSS、Lucide React
+- **機能**: インタラクティブキャンバス編集、ドラッグ＆ドロップファイルアップロード、リアルタイム進捗
+- **ビルド**: Nginxで静的ファイルを提供するマルチステージDockerビルド
+- **サービス依存関係**: バックエンドサービスのヘルスチェック通過後にのみ開始
 
 ## 🔧 Docker コマンドリファレンス
 
@@ -151,6 +157,7 @@ docker volume ls
 # 特定ボリュームの詳細確認
 docker volume inspect labeltool-fakedatagenerator_backend_uploads
 docker volume inspect labeltool-fakedatagenerator_huggingface_cache
+docker volume inspect labeltool-fakedatagenerator_paddlex_cache
 
 # 未使用ボリューム削除
 docker volume prune
@@ -336,11 +343,13 @@ docker image prune
 
 ### データバックアップ
 ```bash
-# バックエンドボリュームデータのバックアップ
+# バックエンドアップロードと処理済みファイルのバックアップ
 docker run --rm -v labeltool-fakedatagenerator_backend_uploads:/data -v $(pwd):/backup alpine tar czf /backup/uploads-backup.tar.gz -C /data .
+docker run --rm -v labeltool-fakedatagenerator_backend_processed:/data -v $(pwd):/backup alpine tar czf /backup/processed-backup.tar.gz -C /data .
 
-# IOPaintモデルキャッシュのバックアップ
+# モデルキャッシュのバックアップ（高速起動のために重要）
 docker run --rm -v labeltool-fakedatagenerator_huggingface_cache:/data -v $(pwd):/backup alpine tar czf /backup/iopaint-models-backup.tar.gz -C /data .
+docker run --rm -v labeltool-fakedatagenerator_paddlex_cache:/data -v $(pwd):/backup alpine tar czf /backup/paddleocr-models-backup.tar.gz -C /data .
 ```
 
 問題がある場合は、ログファイルを確認するか開発チームにお問い合わせください。

@@ -259,17 +259,13 @@ backend/cache/
 frontend/dist/
 frontend/build/
 
-# AI Model Caches (PaddleOCR, IOPaint)
-*.paddleocr/
+# AI Model Caches (actual cache directories that exist)
 .paddlex/
 .cache/huggingface/
-.cache/torch/
 *.pth
 *.pdparams
 *.pdopt
 *.pdmodel
-models/
-checkpoints/
 
 # Image processing temporary files
 *.tmp

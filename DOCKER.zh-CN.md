@@ -2,14 +2,14 @@
 
 *[English](DOCKER.md) | [中文文档](DOCKER.zh-CN.md) | [日本語ドキュメント](DOCKER.ja.md)*
 
-本文档介绍如何使用 Docker 来运行 LabelTool 项目的**微服务架构**（3个服务：前端、后端、IOPaint服务）。
+本文档介绍如何使用 Docker 来运行 **LabelTool - Intelligent Text Detection & Removal Tool** 项目的**微服务架构**（3个服务：前端、后端、IOPaint服务）。
 
 ## 🚀 快速开始
 
 ### 1. 克隆项目并进入目录
 ```bash
 git clone <your-repo-url>
-cd labeltool
+cd Labeltool-fakeDataGenerator
 ```
 
 ### 2. 环境配置（可选）
@@ -53,23 +53,29 @@ docker-compose up --build -d
 
 ### 🎯 IOPaint服务 (labeltool-iopaint)
 - **端口**: 8081
-- **技术栈**: Python 3.11 + FastAPI + IOPaint 1.6.0 + LAMA模型
+- **技术栈**: Python 3.11 + FastAPI 0.108.0 + IOPaint 1.6.0 + LAMA模型
+- **依赖**: IOPaint、HuggingFace Hub、OpenCV、Pillow 9.5.0
 - **功能**: 使用AI进行高级文本修复和移除
-- **健康检查**: 初始化约需60秒（首次运行下载LAMA模型）
-- **依赖**: 无（完全独立的服务）
+- **健康检查**: 初始化约需60秒（首次运行下载LAMA模型约2GB）
+- **数据卷**: 持久化HuggingFace模型缓存（约2GB）
+- **服务依赖**: 无（完全独立的服务）
 
 ### 🔧 后端服务 (labeltool-backend)
 - **端口**: 8000
-- **技术栈**: Python 3.11.13 + FastAPI + PaddleOCR + HTTP客户端
+- **技术栈**: Python 3.11 + FastAPI 0.108.0 + PaddleOCR + Pydantic v2
+- **依赖**: PaddleOCR、PaddlePaddle、OpenCV、Pillow 9.5.0、WebSockets
 - **功能**: OCR文本检测、会话管理、API编排
-- **健康检查**: 初始化约需40秒
-- **依赖**: 需要IOPaint服务健康才能启动
+- **健康检查**: 初始化约需40秒（首次运行下载PaddleOCR模型）
+- **数据卷**: 持久化PaddleX模型缓存、上传文件、处理文件、日志
+- **服务依赖**: 需要IOPaint服务健康才能启动
 
 ### 🎨 前端服务 (labeltool-frontend)
-- **端口**: 3000
-- **技术栈**: React 18 + TypeScript + Nginx
-- **功能**: 用户界面和交互式画布编辑
-- **依赖**: 需要后端服务健康检查通过后才启动
+- **端口**: 3000（Nginx代理）
+- **技术栈**: React 18 + TypeScript + Vite + Konva.js + Zustand
+- **依赖**: React-Konva、Axios、Tailwind CSS、Lucide React
+- **功能**: 交互式画布编辑、拖拽文件上传、实时进度显示
+- **构建**: 多阶段Docker构建，Nginx提供静态文件服务
+- **服务依赖**: 需要后端服务健康检查通过后才启动
 
 ## 🔧 Docker 命令参考
 
@@ -151,6 +157,7 @@ docker volume ls
 # 查看特定卷详细信息
 docker volume inspect labeltool-fakedatagenerator_backend_uploads
 docker volume inspect labeltool-fakedatagenerator_huggingface_cache
+docker volume inspect labeltool-fakedatagenerator_paddlex_cache
 
 # 删除未使用的卷
 docker volume prune
@@ -336,11 +343,13 @@ docker image prune
 
 ### 备份数据
 ```bash
-# 备份后端卷数据
+# 备份后端上传和处理文件
 docker run --rm -v labeltool-fakedatagenerator_backend_uploads:/data -v $(pwd):/backup alpine tar czf /backup/uploads-backup.tar.gz -C /data .
+docker run --rm -v labeltool-fakedatagenerator_backend_processed:/data -v $(pwd):/backup alpine tar czf /backup/processed-backup.tar.gz -C /data .
 
-# 备份IOPaint模型缓存
+# 备份模型缓存（对快速启动很重要）
 docker run --rm -v labeltool-fakedatagenerator_huggingface_cache:/data -v $(pwd):/backup alpine tar czf /backup/iopaint-models-backup.tar.gz -C /data .
+docker run --rm -v labeltool-fakedatagenerator_paddlex_cache:/data -v $(pwd):/backup alpine tar czf /backup/paddleocr-models-backup.tar.gz -C /data .
 ```
 
 如有问题，请查看日志文件或联系开发团队。

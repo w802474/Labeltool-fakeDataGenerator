@@ -92,7 +92,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showConfirm, showToast, showEr
   const handleProcessing = async () => {
     try {
       const taskId = await processTextRemovalAsync();
-      showToast?.(`Started processing with real-time progress. Task ID: ${taskId.slice(0, 8)}...`);
+      // Processing started successfully - no toast needed as progress will be shown in UI
     } catch (error) {
       console.error('Failed to start async processing:', error);
       showErrorToast?.('Failed to start processing. Please try again.');

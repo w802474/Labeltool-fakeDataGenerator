@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     paddleocr_det_db_thresh: float = Field(default=0.3, env="PADDLEOCR_DET_DB_THRESH")
     paddleocr_det_db_box_thresh: float = Field(default=0.6, env="PADDLEOCR_DET_DB_BOX_THRESH")
     paddleocr_use_angle_cls: bool = Field(default=True, env="PADDLEOCR_USE_ANGLE_CLS")
-    paddleocr_lang: str = Field(default="en", env="PADDLEOCR_LANG")
+    paddleocr_lang: str = Field(default="japan", env="PADDLEOCR_LANG")
     paddleocr_det_limit_side_len: int = Field(default=1920, env="PADDLEOCR_DET_LIMIT_SIDE_LEN")
     
     # IOPaint Configuration
