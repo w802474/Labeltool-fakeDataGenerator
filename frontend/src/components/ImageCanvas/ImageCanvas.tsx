@@ -74,18 +74,28 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
   const progressData = useProcessingProgress({
     taskId: currentTaskId,
     onComplete: async (result) => {
-      console.log('✅ Processing completed:', result);
-      
       // Refresh session to get the latest data (including processed image)
       if (currentSession) {
         try {
           const updatedSession = await apiService.getSession(currentSession.id);
-          setCurrentSession(updatedSession);
-          setImageDisplayMode('processed');
+          
+          // Update session first, then switch display mode
+          setCurrentSession({
+            ...updatedSession,
+            updated_at: new Date().toISOString() // Force timestamp update for cache busting
+          });
+          
+          // Use a small delay to ensure state updates are applied
+          setTimeout(() => {
+            setImageDisplayMode('processed');
+          }, 100);
+          
         } catch (error) {
           console.error('Failed to refresh session after completion:', error);
           // Still switch to processed mode even if refresh fails
-          setImageDisplayMode('processed');
+          setTimeout(() => {
+            setImageDisplayMode('processed');
+          }, 100);
         }
       }
       
@@ -93,11 +103,10 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
       setCurrentTaskId(null);
     },
     onCancel: () => {
-      console.log('❌ Processing cancelled');
       setCurrentTaskId(null);
     },
     onError: (error) => {
-      console.error('💥 Processing failed:', error);
+      console.error('Processing failed:', error);
       setCurrentTaskId(null);
     }
   });
@@ -106,8 +115,11 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
   const getImageUrl = () => {
     if (!currentSession) return '';
     
+    const displayMode = processingState.displayMode;
+    const hasProcessedImage = !!currentSession.processed_image;
+    
     // If display mode is 'processed' and we have a processed image, show it
-    if (processingState.displayMode === 'processed' && currentSession.processed_image) {
+    if (displayMode === 'processed' && hasProcessedImage) {
       // Add cache-busting parameter using the session's updated timestamp
       const timestamp = new Date(currentSession.updated_at).getTime();
       return `/api/v1/sessions/${currentSession.id}/result?t=${timestamp}`;

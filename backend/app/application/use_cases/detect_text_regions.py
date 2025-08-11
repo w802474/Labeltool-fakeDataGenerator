@@ -1,10 +1,12 @@
 """Use case for detecting text regions in uploaded images."""
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.entities.label_session import LabelSession
 from app.domain.value_objects.session_status import SessionStatus
 from app.application.interfaces.ocr_service import OCRServicePort
 from app.application.interfaces.image_service import ImageServicePort
+from app.infrastructure.database.repositories import SessionRepository
 
 
 class DetectTextRegionsUseCase:
@@ -13,7 +15,8 @@ class DetectTextRegionsUseCase:
     def __init__(
         self, 
         ocr_service: OCRServicePort,
-        image_service: ImageServicePort
+        image_service: ImageServicePort,
+        db_session: AsyncSession
     ):
         """
         Initialize the detect text regions use case.
@@ -21,9 +24,11 @@ class DetectTextRegionsUseCase:
         Args:
             ocr_service: OCR service for text detection
             image_service: Image service for file handling
+            db_session: Database session for persistence
         """
         self.ocr_service = ocr_service
         self.image_service = image_service
+        self.session_repository = SessionRepository(db_session)
     
     async def execute(self, file_data: bytes, filename: str) -> LabelSession:
         """
@@ -66,6 +71,14 @@ class DetectTextRegionsUseCase:
                 logger.warning("No text regions detected in image")
                 # Still transition to detected status even if no regions found
                 session.transition_to_status(SessionStatus.DETECTED)
+            
+            # Save session to database
+            try:
+                await self.session_repository.create(session)
+                logger.info(f"Session {session.id} saved to database")
+            except Exception as db_error:
+                logger.error(f"Failed to save session to database: {db_error}")
+                # Don't fail the entire operation for database errors
             
             # Log detection summary
             summary = session.get_processing_summary()

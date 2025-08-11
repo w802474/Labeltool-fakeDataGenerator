@@ -20,6 +20,8 @@ LabelTool 是一个生产级智能文本处理平台，将尖端AI模型与直�
 - **领域驱动设计**: 后端采用 DDD 模式，清晰的关注点分离
 - **实时处理**: 基于 WebSocket 的长时间任务进度跟踪
 - **生产就绪**: Docker 容器化，全面监控和错误处理
+- **现代前端**: 基于 React Router 的导航，支持正确的 URL 路由和浏览器历史记录
+- **持久化状态**: SQLite 数据库，完整的会话管理和历史数据
 
 ## ✨ 核心特性
 
@@ -34,7 +36,16 @@ LabelTool 是一个生产级智能文本处理平台，将尖端AI模型与直�
 - **双模式系统**: OCR 纠错和文本生成的独立编辑模式
 - **高级撤销/重做**: 基于命令模式的操作历史，支持模式分离
 - **实时进度**: 处理过程中的实时 WebSocket 更新
+- **现代化导航**: React Router 支持正确的 URL 路由（主页 `/` 和编辑器 `/editor/{session_id}`）
+- **会话画廊**: 虚拟化画廊支持无限滚动的历史会话
 - **响应式设计**: 针对桌面和平板设备优化
+
+### 🗄️ 数据管理
+- **SQLite 数据库**: 零配置的持久化存储
+- **会话管理**: 完整的会话生命周期和状态跟踪
+- **历史数据**: 浏览和管理以前的处理会话
+- **数据完整性**: 外键约束和事务安全
+- **性能优化**: 常用查询模式的索引
 
 ### 🏗️ 技术卓越性
 - **微服务架构**: 独立服务支持可扩展性
@@ -76,10 +87,11 @@ docker-compose up --build
 │   (React App)   │────│  (FastAPI)      │────│   (FastAPI)     │
 │   端口: 3000    │    │   端口: 8000    │    │   端口: 8081    │  
 │                 │    │                 │    │                 │
-│ • 用户界面      │    │ • OCR 检测      │    │ • 文本移除      │
+│ • React Router  │    │ • OCR 检测      │    │ • 文本移除      │
 │ • 画布编辑器    │    │ • 会话管理      │    │ • LAMA 模型     │
-│ • 文件上传      │    │ • API 网关      │    │ • 图像修复      │
-│ • 状态管理      │    │ • 业务逻辑      │    │ • 进度跟踪      │
+│ • 文件上传      │    │ • SQLite 数据库 │    │ • 图像修复      │
+│ • 状态管理      │    │ • API 网关      │    │ • 进度跟踪      │
+│ • 画廊          │    │ • 业务逻辑      │    │ • WebSocket     │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
         │                        │                        │
         └─────────── WebSocket & HTTP/REST ───────────────┘
@@ -89,15 +101,18 @@ docker-compose up --build
 
 **前端服务**:
 - React 18 + TypeScript + Vite
+- React Router 6.18 用于正确的 URL 导航
 - 交互式 Konva.js 画布用于区域编辑
 - Zustand 状态管理与撤销/重做系统
+- 支持无限滚动的虚拟化画廊
 - 实时 WebSocket 进度跟踪
 - 响应式 Tailwind CSS 设计
 
 **后端服务**:
 - FastAPI + Python 3.11 与 DDD 架构
+- SQLite 数据库配合 SQLAlchemy 异步 ORM
 - PaddleOCR 集成用于文本检测
-- 会话和任务管理
+- 带持久化的会话和任务管理
 - IOPaint 服务客户端集成
 - 带有全面文档的 RESTful API
 
@@ -106,21 +121,25 @@ docker-compose up --build
 - IOPaint 1.6.0 配合 LAMA 模型
 - 高级图像修复功能
 - 资源监控和优化
+- WebSocket 进度报告
 - 独立部署能力
 
 ## 🛠️ 技术栈
 
 ### 前端技术
 - **框架**: React 18 + TypeScript + Vite
+- **路由**: React Router DOM 6.18 用于单页应用导航
 - **画布**: Konva.js + react-konva 用于交互式编辑
 - **状态管理**: Zustand 配合持久化和撤销/重做
-- **样式**: Tailwind CSS 配合自定义组件
+- **UI组件**: 自定义 Tailwind CSS 组件
+- **虚拟化**: react-window 用于性能优化
 - **HTTP 客户端**: Axios 配合拦截器
 - **文件上传**: React-Dropzone 配合进度跟踪
 - **测试**: Jest + React Testing Library
 
 ### 后端技术
 - **框架**: FastAPI + Python 3.11 + Pydantic v2
+- **数据库**: SQLite 配合 SQLAlchemy 异步 ORM
 - **OCR 引擎**: PaddleOCR（最新版配合 PP-OCRv5 模型）
 - **图像处理**: OpenCV + Pillow + NumPy
 - **架构**: 领域驱动设计（DDD）
@@ -137,6 +156,7 @@ docker-compose up --build
 
 ### 基础设施与DevOps
 - **容器化**: Docker + Docker Compose
+- **数据库**: SQLite 文件存储（320KB 数据库大小）
 - **模型缓存**: AI 模型的持久化卷
 - **网络**: 桥接网络配合服务发现
 - **健康监控**: 全面的健康检查
@@ -144,19 +164,18 @@ docker-compose up --build
 
 ## 🎯 用户工作流
 
-### 1. 基本文本移除工作流
+### 1. 现代Web导航
 ```
-上传图像 → OCR检测 → 手动调整 → AI修复 → 下载结果
-   ↓         ↓        ↓        ↓       ↓
- 验证     文本区域   拖拽操作  LAMA模型  PNG导出
+主页 (/) → 画廊选择 → 编辑器 (/editor/{session_id}) → 处理 → 结果
+   ↓         ↓            ↓                        ↓      ↓
+浏览器URL  历史会话      画布编辑                AI处理  下载
 ```
 
-### 2. 高级文本生成工作流
+### 2. 会话管理
 ```
-上传图像 → OCR检测 → AI修复 → 文本生成 → 下载结果
-   ↓         ↓       ↓        ↓         ↓
- 验证     文本区域  背景移除  字体分析   增强图像
-                            + 定位
+上传图像 → OCR检测 → 会话存储 → 编辑/处理 → 历史访问
+   ↓         ↓        ↓         ↓          ↓
+ 验证     文本区域  SQLite数据库 AI处理    画廊视图
 ```
 
 ### 3. 双模式编辑系统
@@ -173,6 +192,44 @@ docker-compose up --build
 - 字体感知的文本渲染
 - 适用于文本替换和增强
 
+## 🗄️ 数据库架构
+
+### SQLite 数据库设计
+应用程序使用 SQLite 进行持久化数据存储，具有以下优势：
+
+**数据库特性**:
+- **零配置**: 无需单独的数据库服务器
+- **ACID 合规性**: 事务安全和数据完整性
+- **基于文件的存储**: 易于备份和部署（`/data/labeltool.db`）
+- **高性能**: 本地文件访问，最小延迟
+- **JSON 支持**: 存储复杂数据结构（边界框、配置）
+
+**表结构**:
+```sql
+-- 会话表：主要会话管理
+sessions (
+  id: VARCHAR(255) PRIMARY KEY,
+  original_image_path: VARCHAR(500),
+  processed_image_path: VARCHAR(500),
+  status: VARCHAR(50),
+  created_at: DATETIME,
+  updated_at: DATETIME
+)
+
+-- 文本区域表：OCR和处理的文本区域
+text_regions (
+  id: VARCHAR(255) PRIMARY KEY,
+  session_id: VARCHAR(255) FOREIGN KEY,
+  region_type: VARCHAR(50),  -- 'ocr' 或 'processed'
+  bounding_box_json: JSON,
+  corners_json: JSON,
+  confidence: FLOAT,
+  original_text: TEXT,
+  edited_text: TEXT,
+  user_input_text: TEXT
+)
+```
+
 ## 🔌 API 文档
 
 ### 主后端 API（端口 8000）
@@ -183,6 +240,7 @@ POST   /api/v1/sessions                    # 创建会话并进行OCR检测
 GET    /api/v1/sessions/{id}               # 获取会话详情
 PUT    /api/v1/sessions/{id}/regions       # 更新文本区域（双模式）
 DELETE /api/v1/sessions/{id}               # 清理会话和文件
+GET    /api/v1/sessions                    # 列出带分页的历史会话
 ```
 
 **处理端点**:
@@ -301,6 +359,10 @@ docker-compose ps
 
 **后端环境**:
 ```env
+# 数据库配置
+DATABASE_URL=sqlite+aiosqlite:////app/data/labeltool.db
+DATABASE_ECHO=false
+
 # OCR 配置
 PADDLEOCR_DEVICE=cpu          # cpu/cuda
 PADDLEOCR_LANG=en             # 语言支持
@@ -347,6 +409,7 @@ docker-compose ps
 - 处理时间和资源使用情况
 - 错误率和重试统计
 - 模型性能指标
+- 数据库查询性能
 
 ### 日志记录
 
@@ -355,6 +418,7 @@ docker-compose ps
 - 请求/响应跟踪
 - 错误跟踪及堆栈跟踪
 - 性能指标日志
+- 数据库操作日志
 
 **日志访问**:
 ```bash
@@ -399,6 +463,15 @@ IOPAINT_CPU_OFFLOAD=true      # CPU/GPU负载均衡
 MAX_IMAGE_SIZE=2048           # 减少以提高处理速度
 ```
 
+### 数据库配置
+
+**SQLite 优化**:
+```env
+DATABASE_ECHO=false           # 在生产环境中禁用SQL日志
+DATABASE_POOL_SIZE=5          # 连接池大小
+DATABASE_TIMEOUT=30           # 查询超时秒数
+```
+
 ## 🛠️ 故障排除
 
 ### 常见问题
@@ -417,7 +490,17 @@ docker-compose logs iopaint-service
 docker-compose restart
 ```
 
-**2. 模型下载问题**
+**2. 数据库问题**
+```bash
+# 检查数据库文件
+ls -la data/labeltool.db
+
+# 重置数据库（警告：丢失所有数据）
+rm data/labeltool.db
+docker-compose restart backend
+```
+
+**3. 模型下载问题**
 ```bash
 # 检查网络连接
 curl -I https://huggingface.co
@@ -431,7 +514,14 @@ docker-compose down -v
 docker-compose up --build
 ```
 
-**3. 性能问题**
+**4. 前端导航问题**
+```bash
+# 清除浏览器缓存和localStorage
+# 检查浏览器控制台的JavaScript错误
+# 验证所有服务在正确端口上运行
+```
+
+**5. 性能问题**
 ```bash
 # 启用GPU支持
 docker-compose -f docker-compose.gpu.yml up
@@ -442,7 +532,7 @@ docker-compose -f docker-compose.gpu.yml up
 # MAX_FILE_SIZE=10485760  # 10MB
 ```
 
-**4. 内存问题**
+**6. 内存问题**
 ```bash
 # 启用低内存模式
 # IOPaint 服务环境:
@@ -464,6 +554,10 @@ docker system df >> diagnostic.log
 
 # 检查资源使用情况
 docker stats
+
+# 数据库状态
+sqlite3 data/labeltool.db ".tables"
+sqlite3 data/labeltool.db "SELECT COUNT(*) FROM sessions;"
 ```
 
 **常见解决方案**:
@@ -471,6 +565,7 @@ docker stats
 - 如果内存有限，请使用较小的图像
 - 启用GPU支持以获得更快的处理速度
 - 检查防火墙设置以获取端口访问权限
+- 如果出现导航问题，请清除浏览器缓存
 
 ## 📖 附加文档
 
@@ -496,4 +591,5 @@ docker stats
 - **PaddleOCR 团队** 提供出色的 OCR 模型
 - **IOPaint 开发者** 提供最先进的修复功能
 - **React & FastAPI 社区** 提供强大的框架
+- **SQLAlchemy 团队** 提供强大的 ORM
 - **Docker** 提供容器化支持

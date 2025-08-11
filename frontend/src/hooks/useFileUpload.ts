@@ -21,7 +21,7 @@ export interface UseFileUploadReturn {
   resetUpload: () => void;
 }
 
-export const useFileUpload = (): UseFileUploadReturn => {
+export const useFileUpload = (onUploadComplete?: (session: any) => void): UseFileUploadReturn => {
   const { setError } = useAppStore();
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
@@ -77,16 +77,17 @@ export const useFileUpload = (): UseFileUploadReturn => {
       // Wait a bit
       await new Promise(resolve => setTimeout(resolve, 300));
 
-      // Update the store with the session
-      const { setCurrentSession } = useAppStore.getState();
-      setCurrentSession(session);
-
       // Stage 4: Complete
       setUploadProgress({
         progress: 100,
         stage: 'complete',
         message: 'Upload complete!',
       });
+
+      // Call onUploadComplete callback if provided
+      if (onUploadComplete) {
+        onUploadComplete(session);
+      }
 
       // Clear progress after a delay
       setTimeout(() => {
@@ -100,7 +101,7 @@ export const useFileUpload = (): UseFileUploadReturn => {
     } finally {
       setIsUploading(false);
     }
-  }, [setError]);
+  }, [setError, onUploadComplete]);
 
   const resetUpload = useCallback(() => {
     setIsUploading(false);

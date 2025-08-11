@@ -218,6 +218,8 @@ export function useWebSocketProgress(
         const { frequency, recentUpdates } = calculateUpdateFrequency(prev);
         const now = Date.now();
         
+        const isCompleting = update.status === 'completed' && !prev.isCompleted;
+        
         return {
           ...prev,
           taskId: update.task_id,
@@ -227,12 +229,27 @@ export function useWebSocketProgress(
           progress: safeProgress,
           message: update.message,
           error: update.error_message || null,
+          isCompleted: update.status === 'completed',
+          result: isCompleting ? update.result : prev.result,
+          endTime: isCompleting ? new Date() : prev.endTime,
+          duration: isCompleting && prev.startTime ? Date.now() - prev.startTime.getTime() : prev.duration,
           startTime: prev.startTime || new Date(),
           updateFrequency: frequency,
           lastUpdateTime: now,
           recentUpdates: recentUpdates
         };
       });
+      
+      // Check if task completed via progress update
+      if (update.status === 'completed') {
+        onCompleted?.({
+          task_id: update.task_id,
+          session_id: update.session_id,
+          result: update.result || {},
+          processed_image_url: (update as any).processed_image_url,
+          timestamp: new Date().toISOString()
+        });
+      }
       
       onProgress?.(update);
       

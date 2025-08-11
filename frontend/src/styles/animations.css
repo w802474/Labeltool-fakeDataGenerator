@@ -1,0 +1,227 @@
+/* Universal Loader Animations */
+
+/* Grid Pattern Background */
+.bg-grid-pattern {
+  background-image: 
+    linear-gradient(rgba(59, 130, 246, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59, 130, 246, 0.1) 1px, transparent 1px);
+}
+
+.dark .bg-grid-pattern {
+  background-image: 
+    linear-gradient(rgba(59, 130, 246, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59, 130, 246, 0.05) 1px, transparent 1px);
+}
+
+/* Custom Keyframe Animations */
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes spin-reverse {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes loading-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes float-1 {
+  0%, 100% {
+    transform: translate(20px, 30px) rotate(0deg);
+  }
+  25% {
+    transform: translate(100px, 80px) rotate(90deg);
+  }
+  50% {
+    transform: translate(200px, 40px) rotate(180deg);
+  }
+  75% {
+    transform: translate(150px, 120px) rotate(270deg);
+  }
+}
+
+@keyframes float-2 {
+  0%, 100% {
+    transform: translate(300px, 100px) rotate(0deg);
+  }
+  25% {
+    transform: translate(400px, 200px) rotate(-90deg);
+  }
+  50% {
+    transform: translate(500px, 150px) rotate(-180deg);
+  }
+  75% {
+    transform: translate(350px, 250px) rotate(-270deg);
+  }
+}
+
+@keyframes float-3 {
+  0%, 100% {
+    transform: translate(80px, 200px) rotate(0deg);
+  }
+  33% {
+    transform: translate(250px, 300px) rotate(120deg);
+  }
+  66% {
+    transform: translate(150px, 350px) rotate(240deg);
+  }
+}
+
+@keyframes float-4 {
+  0%, 100% {
+    transform: translate(400px, 50px) rotate(0deg);
+  }
+  50% {
+    transform: translate(100px, 300px) rotate(180deg);
+  }
+}
+
+/* Scale-based transitions for smooth page transitions */
+@keyframes scale-in {
+  from {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes scale-out {
+  from {
+    transform: scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(30px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Animation Classes */
+.animate-spin-slow {
+  animation: spin-slow 3s linear infinite;
+}
+
+.animate-spin-reverse {
+  animation: spin-reverse 4s linear infinite;
+}
+
+.animate-loading-progress {
+  animation: loading-progress 2s ease-in-out infinite;
+}
+
+.animate-fade-in {
+  animation: fade-in 1s ease-out forwards;
+}
+
+.animate-float-1 {
+  animation: float-1 20s ease-in-out infinite;
+}
+
+.animate-float-2 {
+  animation: float-2 25s ease-in-out infinite;
+}
+
+.animate-float-3 {
+  animation: float-3 18s ease-in-out infinite;
+}
+
+.animate-float-4 {
+  animation: float-4 22s ease-in-out infinite;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.animate-scale-out {
+  animation: scale-out 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Animation Delay Classes */
+.animation-delay-100 { animation-delay: 100ms; }
+.animation-delay-200 { animation-delay: 200ms; }
+.animation-delay-300 { animation-delay: 300ms; }
+.animation-delay-400 { animation-delay: 400ms; }
+.animation-delay-500 { animation-delay: 500ms; }
+.animation-delay-600 { animation-delay: 600ms; }
+.animation-delay-700 { animation-delay: 700ms; }
+.animation-delay-800 { animation-delay: 800ms; }
+.animation-delay-1000 { animation-delay: 1000ms; }
+.animation-delay-2000 { animation-delay: 2000ms; }
+
+/* Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin-slow,
+  .animate-spin-reverse,
+  .animate-bounce,
+  .animate-pulse,
+  .animate-ping,
+  .animate-float-1,
+  .animate-float-2,
+  .animate-float-3,
+  .animate-float-4 {
+    animation: none;
+  }
+  
+  .animate-loading-progress {
+    animation: none;
+    transform: translateX(0);
+    width: 70%;
+  }
+  
+  .animate-fade-in,
+  .animate-scale-in,
+  .animate-slide-up {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}

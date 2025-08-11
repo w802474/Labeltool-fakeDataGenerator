@@ -302,3 +302,25 @@ class TextGenerationError(ErrorResponse):
         default_factory=list, 
         description="IDs of regions that failed to process"
     )
+
+
+class BulkDeleteRequest(BaseModel):
+    """Request for bulk deletion of sessions."""
+    session_ids: List[str] = Field(
+        ..., 
+        description="List of session IDs to delete",
+        min_items=1,
+        max_items=100
+    )
+
+
+class BulkDeleteResponse(BaseModel):
+    """Response for bulk deletion operation."""
+    deleted_sessions: List[str] = Field(..., description="Successfully deleted session IDs")
+    failed_sessions: List[dict] = Field(
+        default_factory=list, 
+        description="Failed deletions with session ID and error message"
+    )
+    total_requested: int = Field(..., description="Total number of sessions requested for deletion")
+    total_deleted: int = Field(..., description="Total number of sessions successfully deleted")
+    message: str = Field(..., description="Overall operation status message")

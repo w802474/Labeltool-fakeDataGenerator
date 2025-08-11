@@ -190,9 +190,7 @@ class IOPaintWebSocketClient:
         """Handle task completion - update session with processed image."""
         try:
             # Import here to avoid circular imports
-            from app.infrastructure.api.routes import _sessions, get_global_async_processor
-            from app.domain.value_objects.image_file import ImageFile, Dimensions
-            from app.domain.value_objects.session_status import SessionStatus
+            from app.infrastructure.api.routes import get_global_async_processor
             
             # Get async processor and task info using mapped task ID
             async_processor = get_global_async_processor()
@@ -204,27 +202,25 @@ class IOPaintWebSocketClient:
                 logger.warning(f"Task {frontend_task_id} (mapped from {task_id}) not found in async processor")
                 return
             
-            # Get session
+            # Session lookup not needed here since HTTP callback handles the actual processing
             session_id = task_info.session_id
-            if session_id not in _sessions:
-                logger.warning(f"Session {session_id} not found for completed task {task_id}")
-                return
-            
-            session = _sessions[session_id]
             
             # Note: With HTTP callback mechanism, the processed image will be handled
             # via the callback endpoint, not through WebSocket completion messages.
             # We just update the task status here.
             logger.info(f"Task {task_id} completed via WebSocket - processed image will be handled via HTTP callback")
             
-            # Update task info in async processor
+            # Update task info in async processor (minimal update, full handling via HTTP callback)
             task_info.status = "completed"
             task_info.stage = "completed"
             task_info.progress = 100.0
-            task_info.message = "Processing completed - waiting for HTTP callback"
+            task_info.message = "Processing completed successfully"
             task_info.completed_at = datetime.now()
             
-            logger.info(f"Task {frontend_task_id} (IOPaint: {task_id}) completed successfully")
+            # Note: WebSocket completion notification is sent by HTTP callback in routes.py
+            # to avoid duplicate notifications and ensure processed image is ready
+            
+            logger.info(f"Task {frontend_task_id} (IOPaint: {task_id}) marked as completed, HTTP callback will handle WebSocket notification")
             
         except Exception as e:
             logger.error(f"Error handling task completion for {task_id}: {e}")

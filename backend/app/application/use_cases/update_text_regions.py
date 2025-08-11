@@ -1,6 +1,7 @@
 """Use case for updating text regions based on user modifications."""
 from typing import List, Optional
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.entities.label_session import LabelSession
 from app.domain.entities.text_region import TextRegion
@@ -9,14 +10,19 @@ from app.domain.value_objects.point import Point
 from app.domain.value_objects.session_status import SessionStatus
 from app.application.dto.session_dto import TextRegionDTO
 from app.infrastructure.storage.file_storage import FileStorageService
+from app.infrastructure.database.repositories import SessionRepository, TextRegionRepository
 
 
 class UpdateTextRegionsUseCase:
     """Use case for manual adjustment of text regions."""
     
-    def __init__(self, file_storage_service: Optional[FileStorageService] = None):
+    def __init__(self, file_storage_service: Optional[FileStorageService] = None, db_session: Optional[AsyncSession] = None):
         """Initialize the update text regions use case."""
         self.file_storage_service = file_storage_service or FileStorageService()
+        self.db_session = db_session
+        if db_session:
+            self.session_repository = SessionRepository(db_session)
+            self.region_repository = TextRegionRepository(db_session)
     
     async def execute(
         self, 
@@ -101,6 +107,21 @@ class UpdateTextRegionsUseCase:
                 except Exception as csv_error:
                     logger.warning(f"Failed to export regions to CSV: {csv_error}")
                     # Don't fail the main operation if CSV export fails
+            
+            # Update database if available
+            if self.db_session:
+                try:
+                    await self.session_repository.update(session)
+                    # Update regions in database based on update mode
+                    regions_to_sync = session.processed_text_regions if update_mode == "processed" else session.text_regions
+                    if regions_to_sync:
+                        await self.region_repository.update_regions_for_session(
+                            session.id, regions_to_sync, update_mode
+                        )
+                    logger.info(f"Session {session.id} synchronized to database")
+                except Exception as db_error:
+                    logger.error(f"Failed to sync session to database: {db_error}")
+                    # Don't fail the main operation for database errors
             
             logger.info(f"Successfully updated text regions for session {session.id}")
             
@@ -399,8 +420,10 @@ class UpdateTextRegionsUseCase:
                 },
                 'confidence': region.confidence,
                 'original_text': region.original_text or '',
+                'edited_text': region.edited_text or '',
                 'is_user_modified': region.is_user_modified,
-                'is_selected': region.is_selected
+                'is_selected': region.is_selected,
+                'text_category': region.text_category or ''
             }
             regions_data.append(region_dict)
         

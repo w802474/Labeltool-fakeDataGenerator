@@ -48,6 +48,18 @@ export interface ImageFile {
   dimensions: Dimensions;
 }
 
+export interface SessionData {
+  id: string;
+  original_image: ImageFile;
+  processed_image: ImageFile | null;
+  text_regions: TextRegion[];
+  processed_text_regions?: TextRegion[];
+  status: string;
+  upload_timestamp: string;
+  processing_timestamp?: string;
+  completion_timestamp?: string;
+}
+
 export type SessionStatus = 
   | 'uploaded'
   | 'detecting'

@@ -19,7 +19,10 @@ services:
       - PADDLEOCR_LANG=japan
       - IOPAINT_PORT=8081
       - CORS_ORIGINS="http://localhost:3000,http://localhost:5173,http://frontend"
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/labeltool.db
+      - DATABASE_ECHO=false
     volumes:
+      - backend_data:/app/data  # Persistent data directory (database + files)
       - backend_uploads:/app/uploads
       - backend_processed:/app/processed
       - backend_exports:/app/exports
@@ -87,6 +90,12 @@ services:
       start_period: 60s
 
 volumes:
+  backend_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data  # Bind mount to local ./data directory for easy access
   backend_uploads:
     driver: local
   backend_processed:

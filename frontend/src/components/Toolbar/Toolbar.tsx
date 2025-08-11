@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   ZoomIn, 
   ZoomOut, 
@@ -28,9 +29,22 @@ interface ToolbarProps {
   }) => Promise<boolean>;
   showToast?: (message: string) => void;
   showErrorToast?: (message: string) => void;
+  uploadProgress?: any;
+  setUploadProgress?: (progress: any) => void;
+  isUploading?: boolean;
+  setIsUploading?: (uploading: boolean) => void;
 }
 
-export const Toolbar: React.FC<ToolbarProps> = ({ showConfirm, showToast, showErrorToast }) => {
+export const Toolbar: React.FC<ToolbarProps> = ({ 
+  showConfirm, 
+  showToast, 
+  showErrorToast, 
+  uploadProgress, 
+  setUploadProgress, 
+  isUploading, 
+  setIsUploading 
+}) => {
+  const navigate = useNavigate();
   const {
     currentSession,
     isLoading,
@@ -173,26 +187,92 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showConfirm, showToast, showEr
   };
 
   const handleNewSession = async () => {
-    if (showConfirm) {
-      const confirmed = await showConfirm({
-        title: 'Start New Session',
-        message: 'Are you sure you want to start a new session? Current progress will be lost.',
-        confirmText: 'Yes, Go to Home',
-        cancelText: 'Cancel',
-        type: 'warning'
-      });
+    try {
+      // First, save current changes silently
+      if (currentSession) {
+        const allCurrentRegions = getCurrentDisplayRegions();
+        await updateTextRegions(allCurrentRegions, 'auto', false);
+      }
       
-      if (confirmed) {
-        deleteSession();
-        // Trigger auto upload when returning to home page
-        setShouldAutoTriggerUpload(true);
-      }
-    } else {
-      // Fallback to native confirm if showConfirm is not available
-      if (confirm('Are you sure you want to start a new session? Current progress will be lost.')) {
-        deleteSession();
-        setShouldAutoTriggerUpload(true);
-      }
+      // Create and trigger file input for new image selection
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.style.display = 'none';
+      
+      input.onchange = async (e) => {
+        const files = Array.from((e.target as HTMLInputElement).files || []);
+        if (files.length === 0) return;
+        
+        const file = files[0];
+        try {
+          // Import apiService dynamically to avoid circular imports
+          const { apiService } = await import('@/services/api');
+          
+          setIsUploading?.(true);
+          
+          // Stage 1: Uploading
+          setUploadProgress?.({
+            progress: 0,
+            stage: 'uploading',
+            message: 'Uploading image...',
+            managedByToolbar: true,
+          });
+
+          // Create new session with progress tracking
+          const session = await apiService.createSessionWithProgress(file, (progress) => {
+            setUploadProgress?.({
+              progress,
+              stage: 'uploading',
+              message: `Uploading... ${progress}%`,
+              managedByToolbar: true,
+            });
+          });
+
+          // Stage 2: Processing
+          setUploadProgress?.({
+            progress: 100,
+            stage: 'processing',
+            message: 'Processing image...',
+            managedByToolbar: true,
+          });
+
+          // Wait a bit for the backend to process
+          await new Promise(resolve => setTimeout(resolve, 500));
+
+          // Stage 3: Text detection
+          setUploadProgress?.({
+            progress: 100,
+            stage: 'detecting',
+            message: 'Detecting text regions...',
+            managedByToolbar: true,
+          });
+
+          // Wait a bit
+          await new Promise(resolve => setTimeout(resolve, 300));
+
+          // Navigate to editor page and clear progress
+          navigate(`/editor/${session.id}`);
+          setUploadProgress?.(null);
+          setIsUploading?.(false);
+          
+        } catch (error) {
+          console.error('Failed to process new image:', error);
+          const errorMessage = error instanceof Error ? error.message : 'Failed to process new image';
+          showErrorToast?.(errorMessage);
+          setUploadProgress?.(null);
+          setIsUploading?.(false);
+        }
+        
+        // Clean up input
+        document.body.removeChild(input);
+      };
+      
+      document.body.appendChild(input);
+      input.click();
+      
+    } catch (error) {
+      showErrorToast?.('Failed to save changes. Please try again.');
     }
   };
 
@@ -216,7 +296,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showConfirm, showToast, showEr
             size="sm"
             onClick={handleNewSession}
             icon={<Upload className="h-4 w-4" />}
-            title="Select a new image file"
           >
             New Image
           </Button>

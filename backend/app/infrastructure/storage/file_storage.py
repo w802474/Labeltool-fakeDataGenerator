@@ -441,6 +441,7 @@ class FileStorageService:
                 'actual_text',
                 'is_user_modified',
                 'is_selected',
+                'text_category',
                 'image_filename',
                 'export_timestamp'
             ]
@@ -471,6 +472,7 @@ class FileStorageService:
                         'actual_text': actual_text,
                         'is_user_modified': region.get('is_user_modified', False),
                         'is_selected': region.get('is_selected', False),
+                        'text_category': region.get('text_category', ''),
                         'image_filename': image_filename,
                         'export_timestamp': datetime.now().isoformat()
                     }

@@ -9,7 +9,7 @@ import { formatFileSize } from '@/utils';
 
 export interface FileUploadProps {
   className?: string;
-  onUploadComplete?: () => void;
+  onUploadComplete?: (session: any) => void;
   autoTrigger?: boolean;
 }
 
@@ -28,7 +28,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
     isUploading,
     uploadProgress,
     resetUpload,
-  } = useFileUpload();
+  } = useFileUpload(onUploadComplete);
 
   // Auto-trigger file selection when autoTrigger is true
   useEffect(() => {

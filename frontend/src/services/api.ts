@@ -214,7 +214,15 @@ class ApiService {
   }
 
   async deleteSession(sessionId: string): Promise<void> {
-    await this.client.delete(`/sessions/${sessionId}`);
+    await this.client.delete('/sessions/bulk', {
+      data: { session_ids: [sessionId] }
+    });
+  }
+
+  async deleteSessions(sessionIds: string[]): Promise<void> {
+    await this.client.delete('/sessions/bulk', {
+      data: { session_ids: sessionIds }
+    });
   }
 
   async generateTextInRegions(
@@ -258,6 +266,33 @@ class ApiService {
   async getSystemInfo(): Promise<any> {
     const response = await this.client.get('/system/info');
     return response.data.data;
+  }
+
+  // List historical sessions
+  async listSessions(
+    limit: number = 50,
+    offset: number = 0,
+    status?: string
+  ): Promise<Array<{
+    session_id: string;
+    filename: string;
+    status: string;
+    created_at: string;
+    region_count: number;
+    image_dimensions: { width: number; height: number };
+  }>> {
+    const params: any = { limit, offset };
+    if (status) {
+      params.status = status;
+    }
+
+    const response = await this.client.get('/sessions', { params });
+    return response.data;
+  }
+
+  // Get session image for thumbnail display
+  async getSessionImage(sessionId: string): Promise<string> {
+    return `/api/v1/sessions/${sessionId}/image`;
   }
 
   // Utility methods

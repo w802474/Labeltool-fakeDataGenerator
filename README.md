@@ -20,6 +20,8 @@ LabelTool is a production-ready intelligent text processing platform that combin
 - **Domain-Driven Design**: Clean separation of concerns with DDD patterns in backend
 - **Real-time Processing**: WebSocket-based progress tracking for long-running tasks
 - **Production Ready**: Docker containerization with comprehensive monitoring and error handling
+- **Modern Frontend**: React Router-based navigation with proper URL routing and browser history support
+- **Persistent State**: SQLite database with full session management and historical data
 
 ## ✨ Key Features
 
@@ -34,7 +36,16 @@ LabelTool is a production-ready intelligent text processing platform that combin
 - **Dual-Mode System**: Separate editing modes for OCR correction and text generation
 - **Advanced Undo/Redo**: Command-pattern based operation history with mode separation
 - **Real-time Progress**: Live WebSocket updates during processing
+- **Modern Navigation**: React Router with proper URL routing (home page `/` and editor `/editor/{session_id}`)
+- **Session Gallery**: Virtualized gallery with infinite scrolling for historical sessions
 - **Responsive Design**: Optimized for desktop and tablet devices
+
+### 🗄️ Data Management
+- **SQLite Database**: Persistent storage with zero configuration
+- **Session Management**: Complete session lifecycle with status tracking
+- **Historical Data**: Browse and manage previous processing sessions
+- **Data Integrity**: Foreign key constraints and transaction safety
+- **Performance Optimized**: Indexes for common query patterns
 
 ### 🏗️ Technical Excellence
 - **Microservice Architecture**: Independent services for scalability
@@ -76,10 +87,11 @@ That's it! The application will be fully running with all AI models and dependen
 │   (React App)   │────│  (FastAPI)      │────│   (FastAPI)     │
 │   Port: 3000    │    │   Port: 8000    │    │   Port: 8081    │  
 │                 │    │                 │    │                 │
-│ • User Interface│    │ • OCR Detection │    │ • Text Removal  │
+│ • React Router  │    │ • OCR Detection │    │ • Text Removal  │
 │ • Canvas Editor │    │ • Session Mgmt  │    │ • LAMA Model    │
-│ • File Upload   │    │ • API Gateway   │    │ • Image Repair  │
-│ • State Mgmt    │    │ • Business Logic│    │ • Progress Track│
+│ • File Upload   │    │ • SQLite DB     │    │ • Image Repair  │
+│ • State Mgmt    │    │ • API Gateway   │    │ • Progress Track│
+│ • Gallery       │    │ • Business Logic│    │ • WebSocket     │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
         │                        │                        │
         └─────────── WebSocket & HTTP/REST ───────────────┘
@@ -89,15 +101,18 @@ That's it! The application will be fully running with all AI models and dependen
 
 **Frontend Service**:
 - React 18 + TypeScript + Vite
+- React Router 6.18 for proper URL navigation
 - Interactive Konva.js canvas for region editing
 - Zustand state management with undo/redo system
+- Virtualized gallery with infinite scrolling
 - Real-time WebSocket progress tracking
 - Responsive Tailwind CSS design
 
 **Backend Service**:
 - FastAPI + Python 3.11 with DDD architecture
+- SQLite database with SQLAlchemy async ORM
 - PaddleOCR integration for text detection
-- Session and task management
+- Session and task management with persistence
 - IOPaint service client integration
 - RESTful API with comprehensive documentation
 
@@ -106,21 +121,25 @@ That's it! The application will be fully running with all AI models and dependen
 - IOPaint 1.6.0 with LAMA model
 - Advanced image inpainting capabilities
 - Resource monitoring and optimization
+- WebSocket progress reporting
 - Standalone deployment capability
 
 ## 🛠️ Technology Stack
 
 ### Frontend Technologies
 - **Framework**: React 18 + TypeScript + Vite
+- **Routing**: React Router DOM 6.18 for SPA navigation
 - **Canvas**: Konva.js + react-konva for interactive editing
 - **State Management**: Zustand with persistence and undo/redo
-- **Styling**: Tailwind CSS with custom components
+- **UI Components**: Custom Tailwind CSS components
+- **Virtualization**: react-window for performance optimization
 - **HTTP Client**: Axios with interceptors
 - **File Upload**: React-Dropzone with progress tracking
 - **Testing**: Jest + React Testing Library
 
 ### Backend Technologies
 - **Framework**: FastAPI + Python 3.11 + Pydantic v2
+- **Database**: SQLite with SQLAlchemy async ORM
 - **OCR Engine**: PaddleOCR (latest with PP-OCRv5 models)
 - **Image Processing**: OpenCV + Pillow + NumPy
 - **Architecture**: Domain-Driven Design (DDD)
@@ -137,6 +156,7 @@ That's it! The application will be fully running with all AI models and dependen
 
 ### Infrastructure & DevOps
 - **Containerization**: Docker + Docker Compose
+- **Database**: SQLite file storage (320KB database size)
 - **Model Caching**: Persistent volumes for AI models
 - **Networking**: Bridge network with service discovery
 - **Health Monitoring**: Comprehensive health checks
@@ -144,19 +164,18 @@ That's it! The application will be fully running with all AI models and dependen
 
 ## 🎯 User Workflows
 
-### 1. Basic Text Removal Workflow
+### 1. Modern Web Navigation
 ```
-Upload Image → OCR Detection → Manual Adjustment → AI Inpainting → Download Result
-     ↓              ↓                ↓                ↓              ↓
-  Validation   Text Regions    Drag & Drop      LAMA Model     PNG Export
+Home Page (/) → Gallery Selection → Editor (/editor/{session_id}) → Process → Results
+     ↓              ↓                    ↓                     ↓         ↓
+Browser URL    Historical Sessions   Canvas Editing     AI Processing  Download
 ```
 
-### 2. Advanced Text Generation Workflow
+### 2. Session Management
 ```
-Upload Image → OCR Detection → AI Inpainting → Text Generation → Download Result
-     ↓              ↓               ↓              ↓                ↓
-  Validation   Text Regions    Background      Font Analysis   Enhanced Image
-                                Removal         + Positioning
+Upload Image → OCR Detection → Session Storage → Edit/Process → Historical Access
+     ↓              ↓               ↓               ↓              ↓
+  Validation   Text Regions    SQLite Database  AI Processing   Gallery View
 ```
 
 ### 3. Dual-Mode Editing System
@@ -173,6 +192,44 @@ Upload Image → OCR Detection → AI Inpainting → Text Generation → Downloa
 - Font-aware text rendering
 - Ideal for text replacement and enhancement
 
+## 🗄️ Database Architecture
+
+### SQLite Database Design
+The application uses SQLite for persistent data storage with the following benefits:
+
+**Database Features**:
+- **Zero Configuration**: No separate database server required
+- **ACID Compliance**: Transaction safety and data integrity
+- **File-based Storage**: Easy backup and deployment (`/data/labeltool.db`)
+- **High Performance**: Local file access with minimal latency
+- **JSON Support**: Store complex data structures (bounding boxes, configurations)
+
+**Table Structure**:
+```sql
+-- Sessions table: Main session management
+sessions (
+  id: VARCHAR(255) PRIMARY KEY,
+  original_image_path: VARCHAR(500),
+  processed_image_path: VARCHAR(500),
+  status: VARCHAR(50),
+  created_at: DATETIME,
+  updated_at: DATETIME
+)
+
+-- Text regions table: OCR and processed text regions
+text_regions (
+  id: VARCHAR(255) PRIMARY KEY,
+  session_id: VARCHAR(255) FOREIGN KEY,
+  region_type: VARCHAR(50),  -- 'ocr' or 'processed'
+  bounding_box_json: JSON,
+  corners_json: JSON,
+  confidence: FLOAT,
+  original_text: TEXT,
+  edited_text: TEXT,
+  user_input_text: TEXT
+)
+```
+
 ## 🔌 API Documentation
 
 ### Main Backend API (Port 8000)
@@ -183,6 +240,7 @@ POST   /api/v1/sessions                    # Create session with OCR detection
 GET    /api/v1/sessions/{id}               # Get session details
 PUT    /api/v1/sessions/{id}/regions       # Update text regions (dual-mode)
 DELETE /api/v1/sessions/{id}               # Clean up session and files
+GET    /api/v1/sessions                    # List historical sessions with pagination
 ```
 
 **Processing Endpoints**:
@@ -301,6 +359,10 @@ docker-compose ps
 
 **Backend Environment**:
 ```env
+# Database Configuration
+DATABASE_URL=sqlite+aiosqlite:////app/data/labeltool.db
+DATABASE_ECHO=false
+
 # OCR Configuration
 PADDLEOCR_DEVICE=cpu          # cpu/cuda
 PADDLEOCR_LANG=en             # Language support
@@ -347,6 +409,7 @@ docker-compose ps
 - Processing time and resource usage
 - Error rates and retry statistics
 - Model performance metrics
+- Database query performance
 
 ### Logging
 
@@ -355,6 +418,7 @@ docker-compose ps
 - Request/response tracing
 - Error tracking with stack traces
 - Performance metrics logging
+- Database operation logging
 
 **Log Access**:
 ```bash
@@ -399,6 +463,15 @@ IOPAINT_CPU_OFFLOAD=true      # CPU/GPU load balancing
 MAX_IMAGE_SIZE=2048           # Reduce for faster processing
 ```
 
+### Database Configuration
+
+**SQLite Optimization**:
+```env
+DATABASE_ECHO=false           # Disable SQL logging in production
+DATABASE_POOL_SIZE=5          # Connection pool size
+DATABASE_TIMEOUT=30           # Query timeout seconds
+```
+
 ## 🛠️ Troubleshooting
 
 ### Common Issues
@@ -417,7 +490,17 @@ docker-compose logs iopaint-service
 docker-compose restart
 ```
 
-**2. Model Download Issues**
+**2. Database Issues**
+```bash
+# Check database file
+ls -la data/labeltool.db
+
+# Reset database (WARNING: loses all data)
+rm data/labeltool.db
+docker-compose restart backend
+```
+
+**3. Model Download Issues**
 ```bash
 # Check internet connection
 curl -I https://huggingface.co
@@ -431,7 +514,14 @@ docker-compose down -v
 docker-compose up --build
 ```
 
-**3. Performance Issues**
+**4. Frontend Navigation Issues**
+```bash
+# Clear browser cache and localStorage
+# Check browser console for JavaScript errors
+# Verify all services are running on correct ports
+```
+
+**5. Performance Issues**
 ```bash
 # Enable GPU support
 docker-compose -f docker-compose.gpu.yml up
@@ -442,7 +532,7 @@ docker-compose -f docker-compose.gpu.yml up
 # MAX_FILE_SIZE=10485760  # 10MB
 ```
 
-**4. Memory Issues**
+**6. Memory Issues**
 ```bash
 # Enable low memory mode
 # IOPaint service environment:
@@ -464,6 +554,10 @@ docker system df >> diagnostic.log
 
 # Check resource usage
 docker stats
+
+# Database status
+sqlite3 data/labeltool.db ".tables"
+sqlite3 data/labeltool.db "SELECT COUNT(*) FROM sessions;"
 ```
 
 **Common Solutions**:
@@ -471,6 +565,7 @@ docker stats
 - Use smaller images if memory is limited
 - Enable GPU support for faster processing
 - Check firewall settings for port access
+- Clear browser cache if navigation issues occur
 
 ## 📖 Additional Documentation
 
@@ -496,4 +591,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - **PaddleOCR Team** for the excellent OCR models
 - **IOPaint Developers** for the state-of-the-art inpainting capabilities
 - **React & FastAPI Communities** for the robust frameworks
+- **SQLAlchemy Team** for the powerful ORM
 - **Docker** for containerization support

@@ -19,6 +19,7 @@ sys.path.insert(0, str(current_dir))
 from app.config.settings import settings
 from app.infrastructure.api.routes import router
 from app.infrastructure.api.websocket_routes import router as websocket_router
+from app.infrastructure.database.config import init_database, close_database
 
 
 def configure_logging():
@@ -117,16 +118,16 @@ def cleanup_cache_directories():
     import shutil
     from datetime import datetime
     
-    # Define cache directories and their cleanup rules
+    # Define cache directories and their cleanup rules (use Docker paths)
     cache_configs = {
-        "exports": {"clean_all": True},
-        "processed": {"clean_all": True}, 
-        "uploads": {"clean_all": True},
-        "logs": {"clean_all": False, "keep_current": True}  # Special handling for logs
+        "/app/exports": {"clean_all": True},
+        "/app/processed": {"clean_all": True}, 
+        "/app/uploads": {"clean_all": True},
+        "/app/logs": {"clean_all": False, "keep_current": True}  # Special handling for logs
     }
     
     cleaned_files = 0
-    current_log_file = "logs/labeltool.log"
+    current_log_file = "/app/logs/labeltool.log"
     
     for cache_dir, config in cache_configs.items():
         try:
@@ -142,7 +143,7 @@ def cleanup_cache_directories():
                             shutil.rmtree(file_path)
                             cleaned_files += 1
                     logger.info(f"🧹 Cleaned cache directory: {cache_dir}")
-                elif cache_dir == "logs" and config.get("keep_current"):
+                elif cache_dir == "/app/logs" and config.get("keep_current"):
                     # Special handling for logs - clean old files but keep current one
                     for filename in os.listdir(cache_dir):
                         file_path = os.path.join(cache_dir, filename)
@@ -168,6 +169,33 @@ def cleanup_cache_directories():
         logger.info(f"🗑️ Cleaned {cleaned_files} cache files/directories on startup")
     else:
         logger.info("✨ Cache directories were already clean")
+    
+    # Also clean database tables
+    try:
+        import sqlite3
+        db_path = "/app/data/labeltool.db"
+        if os.path.exists(db_path):
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # Get count before deletion
+            cursor.execute('SELECT COUNT(*) FROM sessions')
+            session_count = cursor.fetchone()[0]
+            cursor.execute('SELECT COUNT(*) FROM text_regions')
+            region_count = cursor.fetchone()[0]
+            
+            # Delete all data
+            cursor.execute('DELETE FROM text_regions')
+            cursor.execute('DELETE FROM sessions')
+            conn.commit()
+            conn.close()
+            
+            if session_count > 0 or region_count > 0:
+                logger.info(f"🗄️ Cleaned database: {session_count} sessions, {region_count} text regions")
+            else:
+                logger.info("✨ Database was already clean")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to clean database: {e}")
 
 
 def setup_events(app: FastAPI):
@@ -178,8 +206,8 @@ def setup_events(app: FastAPI):
         """Application startup event."""
         logger.info("Starting LabelTool API...")
         
-        # Clean up cache directories (after logging is already configured)
-        cleanup_cache_directories()
+        # Note: cleanup_cache_directories() is available but not called on startup
+        # This allows preserving data between restarts for development/testing
         
         # Log configuration
         logger.info(f"API Host: {settings.api_host}:{settings.api_port}")
@@ -217,6 +245,14 @@ def setup_events(app: FastAPI):
         except Exception as e:
             logger.warning(f"⚠️ Error connecting to IOPaint WebSocket service: {e}")
         
+        # Initialize database
+        try:
+            await init_database()
+            logger.info("✅ Database initialized successfully")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize database: {e}")
+            # Continue startup even if database fails
+        
         logger.info("LabelTool API startup completed")
     
     @app.on_event("shutdown")
@@ -244,6 +280,13 @@ def setup_events(app: FastAPI):
             logger.info(f"Cleaned up {cleaned_count} temporary files")
         except Exception as e:
             logger.warning(f"Failed to cleanup temporary files: {e}")
+        
+        # Close database connections
+        try:
+            await close_database()
+            logger.info("✅ Database connections closed")
+        except Exception as e:
+            logger.warning(f"⚠️ Error closing database connections: {e}")
         
         logger.info("LabelTool API shutdown completed")
 

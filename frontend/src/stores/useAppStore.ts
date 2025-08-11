@@ -18,7 +18,36 @@ import { apiService } from '@/services/api';
 import { createAddRegionCommand, createDeleteRegionCommand, createEditTextCommand, createGenerateTextCommand, createMoveRegionCommand, createResizeRegionCommand } from '@/utils/undoCommands';
 import { recordOriginalBoxSize, markRegionSizeModified } from '@/utils/fontUtils';
 
+interface SessionSummary {
+  session_id: string;
+  filename: string;
+  status: string;
+  created_at: string;
+  region_count: number;
+  image_dimensions: { width: number; height: number };
+}
+
+interface PaginationState {
+  currentPage: number;
+  itemsPerPage: number;
+  hasNextPage: boolean;
+  isLoadingMore: boolean;
+  totalCount: number;
+}
+
 interface AppStore extends AppState {
+  // Initialization state
+  isInitializing: boolean;
+  hasCheckedDatabase: boolean;
+  
+  // Historical sessions state
+  historicalSessions: SessionSummary[];
+  historicalSessionsLoading: boolean;
+  historicalSessionsError: string | null;
+  
+  // Pagination state
+  pagination: PaginationState;
+  
   // Helper functions
   getCurrentDisplayRegions: () => TextRegion[];
   
@@ -26,6 +55,24 @@ interface AppStore extends AppState {
   setCurrentSession: (session: LabelSession | null) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
+  
+  // Initialization actions
+  initializeApp: () => Promise<void>;
+  setInitializing: (initializing: boolean) => void;
+  setHasCheckedDatabase: (checked: boolean) => void;
+  
+  // Historical sessions actions
+  loadHistoricalSessions: () => Promise<void>;
+  loadMoreHistoricalSessions: () => Promise<void>;
+  setHistoricalSessionsLoading: (loading: boolean) => void;
+  setHistoricalSessionsError: (error: string | null) => void;
+  restoreHistoricalSession: (sessionId: string) => Promise<void>;
+  deleteHistoricalSession: (sessionId: string) => Promise<void>;
+  deleteHistoricalSessions: (sessionIds: string[]) => Promise<void>;
+  
+  // Pagination actions
+  resetPagination: () => void;
+  setPaginationState: (state: Partial<PaginationState>) => void;
   
   // File upload trigger
   shouldAutoTriggerUpload: boolean;
@@ -102,6 +149,14 @@ const initialUndoState: UndoState = {
   maxHistorySize: 50,
 };
 
+const initialPaginationState: PaginationState = {
+  currentPage: 0,
+  itemsPerPage: 20,
+  hasNextPage: false,
+  isLoadingMore: false,
+  totalCount: 0,
+};
+
 const initialState: AppState = {
   currentSession: null,
   isLoading: false,
@@ -126,6 +181,12 @@ export const useAppStore = create<AppStore>()(
         ...initialState,
         shouldAutoTriggerUpload: false,
         currentTaskId: null,
+        isInitializing: true,
+        hasCheckedDatabase: false,
+        historicalSessions: [],
+        historicalSessionsLoading: false,
+        historicalSessionsError: null,
+        pagination: initialPaginationState,
 
         // Helper functions
         getCurrentDisplayRegions: () => {
@@ -193,6 +254,59 @@ export const useAppStore = create<AppStore>()(
         },
         setLoading: (loading) => set({ isLoading: loading }),
         setError: (error) => set({ error }),
+        
+        // Initialization actions
+        initializeApp: async () => {
+          const minLoadingTime = 3000; // 3 seconds minimum loading time
+          const startTime = Date.now();
+          
+          set({ isInitializing: true, hasCheckedDatabase: false });
+          
+          try {
+            // Initialize pagination and start data loading concurrently with minimum time
+            const { resetPagination } = get();
+            resetPagination();
+            const { pagination } = get();
+            
+            const sessionsPromise = apiService.listSessions(pagination.itemsPerPage, 0);
+            const minTimePromise = new Promise(resolve => setTimeout(resolve, minLoadingTime));
+            
+            // Wait for both data loading and minimum time
+            const [sessions] = await Promise.all([sessionsPromise, minTimePromise]);
+            
+            set({ 
+              historicalSessions: sessions,
+              hasCheckedDatabase: true,
+              isInitializing: false,
+              historicalSessionsError: null,
+              pagination: {
+                ...pagination,
+                currentPage: 0,
+                hasNextPage: sessions.length === pagination.itemsPerPage,
+                totalCount: sessions.length
+              }
+            });
+          } catch (error) {
+            const elapsed = Date.now() - startTime;
+            
+            // Still ensure minimum loading time even on error
+            if (elapsed < minLoadingTime) {
+              await new Promise(resolve => setTimeout(resolve, minLoadingTime - elapsed));
+            }
+            
+            const errorMessage = error instanceof Error ? error.message : 'Failed to initialize app';
+            set({ 
+              historicalSessions: [],
+              hasCheckedDatabase: true,
+              isInitializing: false,
+              historicalSessionsError: errorMessage,
+              pagination: initialPaginationState
+            });
+          }
+        },
+        
+        setInitializing: (initializing) => set({ isInitializing: initializing }),
+        setHasCheckedDatabase: (checked) => set({ hasCheckedDatabase: checked }),
         
         // File upload trigger
         setShouldAutoTriggerUpload: (should) => set({ shouldAutoTriggerUpload: should }),
@@ -350,22 +464,16 @@ export const useAppStore = create<AppStore>()(
             // Clear processed history when starting a new process
             clearProcessedHistory();
 
-            // Start async processing
+            // Start async processing using current display regions (includes user modifications)
+            const currentRegions = get().getCurrentDisplayRegions();
             const response = await apiService.processTextRemovalAsync(
               currentSession.id, 
-              currentSession.text_regions
+              currentRegions
             );
             
             // Store task ID for progress monitoring
             setCurrentTaskId(response.task_id);
             
-            console.log('🚀 Started async processing:', {
-              taskId: response.task_id,
-              sessionId: response.session_id,
-              websocketUrl: response.websocket_url,
-              estimatedDuration: response.estimated_duration
-            });
-
             return response.task_id;
             
           } catch (error) {
@@ -530,12 +638,6 @@ export const useAppStore = create<AppStore>()(
                 // Get the latest session state and update it with restored data
                 const { currentSession, setCurrentSession, setImageDisplayMode, setShowRegionOverlay } = get();
                 if (currentSession) {
-                  console.log('Undo text generation - restore previous state:', {
-                    current_processed_image: currentSession.processed_image?.path,
-                    restore_to_processed_image: sessionData.processed_image?.path,
-                    keepProcessedMode: sessionData.keepProcessedMode,
-                    showRegionOverlay: sessionData.showRegionOverlay
-                  });
                   
                   try {
                     // Call the new restore API to sync backend state
@@ -553,12 +655,10 @@ export const useAppStore = create<AppStore>()(
                     
                     // Ensure we stay in processed mode and show regions if specified
                     if (sessionData.keepProcessedMode) {
-                      console.log('🔄 Setting display mode to processed');
                       setImageDisplayMode('processed');
                     }
                     
                     if (sessionData.showRegionOverlay) {
-                      console.log('👁️ Setting showRegionOverlay to true');
                       // Use the store's set function directly to ensure the update works
                       set((state) => ({
                         processingState: {
@@ -567,10 +667,8 @@ export const useAppStore = create<AppStore>()(
                         }
                       }));
                     }
-                    
-                    console.log('✅ Backend session state successfully restored with display mode preserved');
                   } catch (error) {
-                    console.error('❌ Failed to restore session:', error);
+                    console.error('Failed to restore session:', error);
                     // Fallback to frontend-only update
                     const updatedSession = {
                       ...currentSession,
@@ -582,12 +680,10 @@ export const useAppStore = create<AppStore>()(
                     
                     // Apply display mode changes even in fallback
                     if (sessionData.keepProcessedMode) {
-                      console.log('🔄 [Fallback] Setting display mode to processed');
                       setImageDisplayMode('processed');
                     }
                     
                     if (sessionData.showRegionOverlay) {
-                      console.log('👁️ [Fallback] Setting showRegionOverlay to true');
                       // Use the store's set function directly to ensure the update works
                       set((state) => ({
                         processingState: {
@@ -1346,6 +1442,159 @@ export const useAppStore = create<AppStore>()(
               processedCurrentIndex: -1
             }
           }));
+        },
+
+        // Historical sessions actions
+        loadHistoricalSessions: async () => {
+          const { setHistoricalSessionsLoading, setHistoricalSessionsError, resetPagination } = get();
+          
+          try {
+            setHistoricalSessionsLoading(true);
+            setHistoricalSessionsError(null);
+            resetPagination();
+            
+            const { pagination } = get();
+            const sessions = await apiService.listSessions(pagination.itemsPerPage, 0);
+            
+            set({
+              historicalSessions: sessions,
+              pagination: {
+                ...pagination,
+                currentPage: 0,
+                hasNextPage: sessions.length === pagination.itemsPerPage,
+                totalCount: sessions.length
+              }
+            });
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Failed to load historical sessions';
+            setHistoricalSessionsError(errorMessage);
+            throw error;
+          } finally {
+            setHistoricalSessionsLoading(false);
+          }
+        },
+
+        loadMoreHistoricalSessions: async () => {
+          const { pagination } = get();
+          
+          if (pagination.isLoadingMore || !pagination.hasNextPage) {
+            return;
+          }
+
+          try {
+            set((state) => ({
+              pagination: { ...state.pagination, isLoadingMore: true }
+            }));
+
+            const nextPage = pagination.currentPage + 1;
+            const offset = nextPage * pagination.itemsPerPage;
+            const newSessions = await apiService.listSessions(pagination.itemsPerPage, offset);
+
+            set((state) => ({
+              historicalSessions: [...state.historicalSessions, ...newSessions],
+              pagination: {
+                ...state.pagination,
+                currentPage: nextPage,
+                hasNextPage: newSessions.length === pagination.itemsPerPage,
+                totalCount: state.historicalSessions.length + newSessions.length,
+                isLoadingMore: false
+              }
+            }));
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Failed to load more sessions';
+            set((state) => ({
+              historicalSessionsError: errorMessage,
+              pagination: { ...state.pagination, isLoadingMore: false }
+            }));
+            throw error;
+          }
+        },
+
+        resetPagination: () => {
+          set((state) => ({
+            pagination: { ...initialPaginationState }
+          }));
+        },
+
+        setPaginationState: (newState) => {
+          set((state) => ({
+            pagination: { ...state.pagination, ...newState }
+          }));
+        },
+
+        setHistoricalSessionsLoading: (loading) => set({ historicalSessionsLoading: loading }),
+        setHistoricalSessionsError: (error) => set({ historicalSessionsError: error }),
+
+        restoreHistoricalSession: async (sessionId: string) => {
+          const { setLoading, setError, setCurrentSession, clearUndoHistory } = get();
+          
+          try {
+            setLoading(true);
+            setError(null);
+            
+            const session = await apiService.getSession(sessionId);
+            setCurrentSession(session);
+            clearUndoHistory(); // Clear undo history for restored session
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Failed to restore session';
+            setError(errorMessage);
+            throw error;
+          } finally {
+            setLoading(false);
+          }
+        },
+
+        deleteHistoricalSession: async (sessionId: string) => {
+          const { setHistoricalSessionsLoading, setHistoricalSessionsError } = get();
+          
+          try {
+            setHistoricalSessionsError(null);
+            
+            // Delete from backend
+            await apiService.deleteSession(sessionId);
+            
+            // Update local state by removing the session
+            set((state) => ({
+              historicalSessions: state.historicalSessions.filter(
+                session => session.session_id !== sessionId
+              ),
+              pagination: {
+                ...state.pagination,
+                totalCount: Math.max(0, state.pagination.totalCount - 1)
+              }
+            }));
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Failed to delete session';
+            setHistoricalSessionsError(errorMessage);
+            throw error;
+          }
+        },
+
+        deleteHistoricalSessions: async (sessionIds: string[]) => {
+          const { setHistoricalSessionsLoading, setHistoricalSessionsError } = get();
+          
+          try {
+            setHistoricalSessionsError(null);
+            
+            // Delete from backend
+            await apiService.deleteSessions(sessionIds);
+            
+            // Update local state by removing the sessions
+            const sessionIdsSet = new Set(sessionIds);
+            set((state) => ({
+              historicalSessions: state.historicalSessions.filter(
+                session => !sessionIdsSet.has(session.session_id)
+              ),
+              pagination: {
+                ...state.pagination,
+                totalCount: Math.max(0, state.pagination.totalCount - sessionIds.length)
+              }
+            }));
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Failed to delete sessions';
+            setHistoricalSessionsError(errorMessage);
+            throw error;
+          }
         },
 
         // Utility actions

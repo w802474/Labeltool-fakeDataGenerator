@@ -25,13 +25,19 @@
     "tailwindcss-animate": "^1.0.7",
     "lucide-react": "^0.292.0",
     "use-image": "^1.1.1",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "react-window": "^1.8.8",
+    "react-window-infinite-loader": "^1.0.9",
+    "react-router-dom": "^6.18.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.37",
     "@types/react-dom": "^18.2.15",
     "@types/node": "^20.9.2",
     "@types/uuid": "^9.0.7",
+    "@types/react-window": "^1.8.8",
+    "@types/react-window-infinite-loader": "^1.0.9",
+    "@types/react-router-dom": "^5.3.3",
     "@typescript-eslint/eslint-plugin": "^6.10.0",
     "@typescript-eslint/parser": "^6.10.0",
     "@vitejs/plugin-react": "^4.2.0",

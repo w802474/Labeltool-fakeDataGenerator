@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Zap, Github, Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/stores/useAppStore';
@@ -12,10 +13,13 @@ interface HeaderProps {
     cancelText?: string;
     type?: 'warning' | 'danger' | 'info';
   }) => Promise<boolean>;
+  showToast?: (message: string) => void;
+  showErrorToast?: (message: string) => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ showConfirm }) => {
-  const { settings, setDarkMode, currentSession, setCurrentSession } = useAppStore();
+export const Header: React.FC<HeaderProps> = ({ showConfirm, showToast, showErrorToast }) => {
+  const navigate = useNavigate();
+  const { settings, setDarkMode, currentSession, updateTextRegions, getCurrentDisplayRegions } = useAppStore();
   const [apiStatus, setApiStatus] = useState<'checking' | 'ready' | 'error'>('checking');
 
   const toggleDarkMode = () => {
@@ -30,22 +34,23 @@ export const Header: React.FC<HeaderProps> = ({ showConfirm }) => {
   };
 
   const handleBackToHome = async () => {
-    // If there's a current session, ask for confirmation
-    if (currentSession && showConfirm) {
-      const confirmed = await showConfirm({
-        title: 'Return to Home',
-        message: 'Are you sure you want to return to the home page? Any unsaved changes will be lost.',
-        confirmText: 'Yes, Go Home',
-        cancelText: 'Cancel',
-        type: 'warning'
-      });
-      
-      if (confirmed) {
-        setCurrentSession(null);
+    // If there's a current session, save changes and return home
+    if (currentSession) {
+      try {
+        // Save ALL current regions (including deletions, additions, modifications)
+        const allCurrentRegions = getCurrentDisplayRegions();
+        await updateTextRegions(allCurrentRegions, 'auto', false);
+        
+        // Navigate to home page
+        navigate('/');
+        
+      } catch (error) {
+        showErrorToast?.('Failed to save changes. Please try again.');
+        return; // Don't navigate home if save failed
       }
     } else {
       // No current session, just go to home
-      setCurrentSession(null);
+      navigate('/');
     }
   };
 

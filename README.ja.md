@@ -20,6 +20,8 @@ LabelTool は最先端のAIモデルと直感的なユーザーインターフ�
 - **ドメイン駆動設計**: バックエンドでDDDパターンを採用し、関心事の明確な分離
 - **リアルタイム処理**: 長時間実行タスクのWebSocketベース進行状況追跡
 - **本番環境対応**: Docker コンテナ化、包括的監視・エラーハンドリング
+- **モダンフロントエンド**: React Router ベースのナビゲーション、適切なURL ルーティングとブラウザ履歴サポート
+- **永続化状態**: SQLite データベースによる完全なセッション管理と履歴データ
 
 ## ✨ 主要機能
 
@@ -34,7 +36,16 @@ LabelTool は最先端のAIモデルと直感的なユーザーインターフ�
 - **デュアルモードシステム**: OCR訂正とテキスト生成の独立編集モード
 - **高度な元に戻す/やり直し**: コマンドパターンベースの操作履歴、モード分離をサポート
 - **リアルタイム進行状況**: 処理中のリアルタイム WebSocket 更新
+- **モダンナビゲーション**: React Router による適切なURL ルーティング（ホームページ `/` とエディター `/editor/{session_id}`）
+- **セッションギャラリー**: 履歴セッションの無限スクロール対応仮想化ギャラリー
 - **レスポンシブデザイン**: デスクトップとタブレット デバイス用に最適化
+
+### 🗄️ データ管理
+- **SQLite データベース**: ゼロ設定の永続化ストレージ
+- **セッション管理**: 完全なセッションライフサイクルとステータス追跡
+- **履歴データ**: 過去の処理セッションの閲覧・管理
+- **データ整合性**: 外部キー制約とトランザクション安全性
+- **パフォーマンス最適化**: 共通クエリパターン用のインデックス
 
 ### 🏗️ 技術的優秀性
 - **マイクロサービスアーキテクチャ**: スケーラビリティをサポートする独立サービス
@@ -76,10 +87,11 @@ docker-compose up --build
 │   (React App)   │────│  (FastAPI)      │────│   (FastAPI)     │
 │   ポート: 3000   │    │  ポート: 8000    │    │  ポート: 8081    │  
 │                 │    │                 │    │                 │
-│ • ユーザーIF    │    │ • OCR 検出      │    │ • テキスト除去  │
+│ • React Router  │    │ • OCR 検出      │    │ • テキスト除去  │
 │ • キャンバス編集│    │ • セッション管理│    │ • LAMA モデル   │
-│ • ファイル上传  │    │ • API ゲートウェイ│    │ • 画像修復      │
-│ • 状態管理      │    │ • ビジネスロジック│    │ • 進行状況追跡  │
+│ • ファイル上传  │    │ • SQLite DB     │    │ • 画像修復      │
+│ • 状態管理      │    │ • API ゲートウェイ│    │ • 進行状況追跡  │
+│ • ギャラリー    │    │ • ビジネスロジック│    │ • WebSocket     │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
         │                        │                        │
         └─────────── WebSocket & HTTP/REST ───────────────┘
@@ -89,15 +101,18 @@ docker-compose up --build
 
 **フロントエンドサービス**:
 - React 18 + TypeScript + Vite
+- React Router 6.18 による適切なURL ナビゲーション
 - 領域編集用のインタラクティブ Konva.js キャンバス
 - 元に戻す/やり直しシステム付き Zustand 状態管理
+- 無限スクロール対応仮想化ギャラリー
 - リアルタイム WebSocket 進行状況追跡
 - レスポンシブ Tailwind CSS デザイン
 
 **バックエンドサービス**:
 - FastAPI + Python 3.11 と DDD アーキテクチャ
+- SQLAlchemy 非同期ORM による SQLite データベース
 - テキスト検出用 PaddleOCR 統合
-- セッション・タスク管理
+- 永続化対応セッション・タスク管理
 - IOPaint サービス クライアント統合
 - 包括的ドキュメント付き RESTful API
 
@@ -106,21 +121,25 @@ docker-compose up --build
 - IOPaint 1.6.0 と LAMA モデル
 - 高度な画像修復機能
 - リソース監視と最適化
+- WebSocket 進行状況レポート
 - 独立デプロイメント機能
 
 ## 🛠️ 技術スタック
 
 ### フロントエンド技術
 - **フレームワーク**: React 18 + TypeScript + Vite
+- **ルーティング**: SPA ナビゲーション用 React Router DOM 6.18
 - **キャンバス**: インタラクティブ編集用 Konva.js + react-konva
 - **状態管理**: 永続化・元に戻す/やり直し付き Zustand
-- **スタイリング**: カスタムコンポーネント付き Tailwind CSS
+- **UI コンポーネント**: カスタム Tailwind CSS コンポーネント
+- **仮想化**: パフォーマンス最適化用 react-window
 - **HTTP クライアント**: インターセプター付き Axios
 - **ファイルアップロード**: 進行状況追跡付き React-Dropzone
 - **テスト**: Jest + React Testing Library
 
 ### バックエンド技術
 - **フレームワーク**: FastAPI + Python 3.11 + Pydantic v2
+- **データベース**: SQLAlchemy 非同期ORM による SQLite
 - **OCR エンジン**: PaddleOCR（PP-OCRv5 モデル付き最新版）
 - **画像処理**: OpenCV + Pillow + NumPy
 - **アーキテクチャ**: ドメイン駆動設計（DDD）
@@ -137,6 +156,7 @@ docker-compose up --build
 
 ### インフラ・DevOps
 - **コンテナ化**: Docker + Docker Compose
+- **データベース**: SQLite ファイルストレージ（320KB データベースサイズ）
 - **モデルキャッシュ**: AI モデル用永続化ボリューム
 - **ネットワーク**: サービス発見付きブリッジネットワーク
 - **ヘルス監視**: 包括的ヘルスチェック
@@ -144,19 +164,18 @@ docker-compose up --build
 
 ## 🎯 ユーザーワークフロー
 
-### 1. 基本テキスト除去ワークフロー
+### 1. モダンWeb ナビゲーション
 ```
-画像アップロード → OCR検出 → 手動調整 → AI修復 → 結果ダウンロード
-      ↓            ↓       ↓       ↓         ↓
-    検証        テキスト領域 ドラッグ操作 LAMAモデル  PNG出力
+ホームページ (/) → ギャラリー選択 → エディター (/editor/{session_id}) → 処理 → 結果
+      ↓              ↓                    ↓                     ↓      ↓
+   ブラウザURL     履歴セッション        キャンバス編集        AI処理  ダウンロード
 ```
 
-### 2. 高度なテキスト生成ワークフロー
+### 2. セッション管理
 ```
-画像アップロード → OCR検出 → AI修復 → テキスト生成 → 結果ダウンロード
-      ↓            ↓       ↓       ↓          ↓
-    検証        テキスト領域 背景除去  フォント分析   画像強化
-                                   + 配置
+画像アップロード → OCR検出 → セッション保存 → 編集/処理 → 履歴アクセス
+      ↓            ↓       ↓           ↓          ↓
+    検証        テキスト領域 SQLite DB   AI処理   ギャラリー表示
 ```
 
 ### 3. デュアルモード編集システム
@@ -173,6 +192,44 @@ docker-compose up --build
 - フォント認識テキストレンダリング
 - テキスト置換・強化に最適
 
+## 🗄️ データベースアーキテクチャ
+
+### SQLite データベース設計
+アプリケーションは永続データストレージに SQLite を使用し、以下の利点があります：
+
+**データベース機能**:
+- **ゼロ設定**: 独立したデータベースサーバー不要
+- **ACID 準拠**: トランザクション安全性とデータ整合性
+- **ファイルベースストレージ**: バックアップとデプロイの容易性（`/data/labeltool.db`）
+- **高パフォーマンス**: ローカルファイルアクセス、最小限のレイテンシ
+- **JSON サポート**: 複雑なデータ構造の格納（境界ボックス、設定）
+
+**テーブル構造**:
+```sql
+-- セッションテーブル: メインセッション管理
+sessions (
+  id: VARCHAR(255) PRIMARY KEY,
+  original_image_path: VARCHAR(500),
+  processed_image_path: VARCHAR(500),
+  status: VARCHAR(50),
+  created_at: DATETIME,
+  updated_at: DATETIME
+)
+
+-- テキスト領域テーブル: OCR と処理されたテキスト領域
+text_regions (
+  id: VARCHAR(255) PRIMARY KEY,
+  session_id: VARCHAR(255) FOREIGN KEY,
+  region_type: VARCHAR(50),  -- 'ocr' または 'processed'
+  bounding_box_json: JSON,
+  corners_json: JSON,
+  confidence: FLOAT,
+  original_text: TEXT,
+  edited_text: TEXT,
+  user_input_text: TEXT
+)
+```
+
 ## 🔌 API ドキュメント
 
 ### メインバックエンド API（ポート 8000）
@@ -183,6 +240,7 @@ POST   /api/v1/sessions                    # OCR検出付きセッション作�
 GET    /api/v1/sessions/{id}               # セッション詳細取得
 PUT    /api/v1/sessions/{id}/regions       # テキスト領域更新（デュアルモード）
 DELETE /api/v1/sessions/{id}               # セッション・ファイルクリーンアップ
+GET    /api/v1/sessions                    # ページネーション付き履歴セッション一覧
 ```
 
 **処理エンドポイント**:
@@ -301,6 +359,10 @@ docker-compose ps
 
 **バックエンド環境**:
 ```env
+# データベース設定
+DATABASE_URL=sqlite+aiosqlite:////app/data/labeltool.db
+DATABASE_ECHO=false
+
 # OCR 設定
 PADDLEOCR_DEVICE=cpu          # cpu/cuda
 PADDLEOCR_LANG=en             # 言語サポート
@@ -347,6 +409,7 @@ docker-compose ps
 - 処理時間とリソース使用状況
 - エラー率と再試行統計
 - モデルパフォーマンスメトリクス
+- データベースクエリパフォーマンス
 
 ### ログ記録
 
@@ -355,6 +418,7 @@ docker-compose ps
 - リクエスト/レスポンス追跡
 - スタックトレース付きエラー追跡
 - パフォーマンスメトリクスログ
+- データベース操作ログ
 
 **ログアクセス**:
 ```bash
@@ -399,6 +463,15 @@ IOPAINT_CPU_OFFLOAD=true      # CPU/GPU負荷分散
 MAX_IMAGE_SIZE=2048           # 高速処理のために削減
 ```
 
+### データベース設定
+
+**SQLite 最適化**:
+```env
+DATABASE_ECHO=false           # 本番環境でSQL ログを無効化
+DATABASE_POOL_SIZE=5          # コネクションプールサイズ
+DATABASE_TIMEOUT=30           # クエリタイムアウト秒数
+```
+
 ## 🛠️ トラブルシューティング
 
 ### よくある問題
@@ -417,7 +490,17 @@ docker-compose logs iopaint-service
 docker-compose restart
 ```
 
-**2. モデルダウンロード問題**
+**2. データベース問題**
+```bash
+# データベースファイル確認
+ls -la data/labeltool.db
+
+# データベースリセット（警告：全データ消失）
+rm data/labeltool.db
+docker-compose restart backend
+```
+
+**3. モデルダウンロード問題**
 ```bash
 # ネットワーク接続確認
 curl -I https://huggingface.co
@@ -431,7 +514,14 @@ docker-compose down -v
 docker-compose up --build
 ```
 
-**3. パフォーマンス問題**
+**4. フロントエンドナビゲーション問題**
+```bash
+# ブラウザキャッシュとlocalStorage をクリア
+# ブラウザコンソールの JavaScript エラーを確認
+# 全サービスが正しいポートで実行されているか確認
+```
+
+**5. パフォーマンス問題**
 ```bash
 # GPU サポート有効化
 docker-compose -f docker-compose.gpu.yml up
@@ -442,7 +532,7 @@ docker-compose -f docker-compose.gpu.yml up
 # MAX_FILE_SIZE=10485760  # 10MB
 ```
 
-**4. メモリ問題**
+**6. メモリ問題**
 ```bash
 # 低メモリモード有効化
 # IOPaint サービス環境:
@@ -464,6 +554,10 @@ docker system df >> diagnostic.log
 
 # リソース使用状況確認
 docker stats
+
+# データベースステータス
+sqlite3 data/labeltool.db ".tables"
+sqlite3 data/labeltool.db "SELECT COUNT(*) FROM sessions;"
 ```
 
 **一般的な解決策**:
@@ -471,6 +565,7 @@ docker stats
 - メモリが限られている場合は小さな画像を使用してください
 - より高速な処理のためにGPUサポートを有効化してください
 - ポートアクセスのためファイアウォール設定を確認してください
+- ナビゲーション問題が発生した場合はブラウザキャッシュをクリアしてください
 
 ## 📖 追加ドキュメント
 
@@ -496,4 +591,5 @@ docker stats
 - **PaddleOCR チーム** 優秀な OCR モデルの提供
 - **IOPaint 開発者** 最先端の修復機能の提供
 - **React & FastAPI コミュニティ** 強力なフレームワークの提供
+- **SQLAlchemy チーム** 強力な ORM の提供
 - **Docker** コンテナ化サポートの提供

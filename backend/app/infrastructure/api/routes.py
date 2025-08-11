@@ -7,12 +7,15 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse, JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
 # Import infrastructure services
 from app.infrastructure.ocr.paddle_ocr_service import PaddleOCRService
 from app.infrastructure.clients.iopaint_client import IOPaintClient
 from app.infrastructure.storage.file_storage import FileStorageService
+from app.infrastructure.database.config import get_db_session
+from app.infrastructure.database.repositories import SessionRepository
 from app.config.settings import settings
 
 # Import application use cases
@@ -20,6 +23,7 @@ from app.application.use_cases.detect_text_regions import DetectTextRegionsUseCa
 from app.application.use_cases.update_text_regions import UpdateTextRegionsUseCase
 from app.application.use_cases.process_text_removal_async import ProcessTextRemovalAsyncUseCase
 from app.application.use_cases.generate_text_in_regions import GenerateTextInRegionsUseCase
+from app.application.use_cases.list_sessions import ListSessionsUseCase, SessionStatisticsUseCase
 
 # Import API models
 from app.infrastructure.api.models import (
@@ -44,7 +48,9 @@ from app.infrastructure.api.models import (
     ProcessTextRemovalAsyncRequest,
     ProcessTextRemovalAsyncResponse,
     TaskStatusResponse,
-    TaskCancelResponse
+    TaskCancelResponse,
+    BulkDeleteRequest,
+    BulkDeleteResponse
 )
 
 # Import DTOs
@@ -56,8 +62,6 @@ from app.domain.value_objects.session_status import SessionStatus
 from app.domain.value_objects.image_file import ImageFile
 
 
-# Global session storage (in production, use Redis or database)
-_sessions: Dict[str, LabelSession] = {}
 
 # Global OCR service instance (singleton)
 _ocr_service: Optional[PaddleOCRService] = None
@@ -101,15 +105,19 @@ def get_file_service() -> FileStorageService:
 
 def get_detect_use_case(
     ocr_service: PaddleOCRService = Depends(get_ocr_service),
-    file_service: FileStorageService = Depends(get_file_service)
+    file_service: FileStorageService = Depends(get_file_service),
+    db: AsyncSession = Depends(get_db_session)
 ) -> DetectTextRegionsUseCase:
     """Dependency to get detect text regions use case."""
-    return DetectTextRegionsUseCase(ocr_service, file_service)
+    return DetectTextRegionsUseCase(ocr_service, file_service, db)
 
 
-def get_update_use_case() -> UpdateTextRegionsUseCase:
+def get_update_use_case(
+    db: AsyncSession = Depends(get_db_session),
+    file_service: FileStorageService = Depends(get_file_service)
+) -> UpdateTextRegionsUseCase:
     """Dependency to get update text regions use case."""
-    return UpdateTextRegionsUseCase()
+    return UpdateTextRegionsUseCase(file_service, db)
 
 
 def get_async_process_use_case(
@@ -247,14 +255,16 @@ def convert_session_to_dto(session: LabelSession) -> LabelSessionDTO:
     )
 
 
-def get_session_or_404(session_id: str) -> LabelSession:
-    """Get session by ID or raise 404."""
-    if session_id not in _sessions:
+async def get_session_or_404(session_id: str, db_session: AsyncSession) -> LabelSession:
+    """Get session by ID from database or raise 404."""
+    repository = SessionRepository(db_session)
+    session = await repository.get_by_id(session_id)
+    if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session {session_id} not found"
         )
-    return _sessions[session_id]
+    return session
 
 
 # Create router
@@ -295,8 +305,7 @@ async def create_session(
         # Execute text detection
         session = await detect_use_case.execute(file_data, file.filename)
         
-        # Store session
-        _sessions[session.id] = session
+        # Session is already stored in database by detect_use_case.execute
         
         logger.info(f"Created session {session.id} with {len(session.text_regions)} regions")
         
@@ -322,10 +331,10 @@ async def create_session(
     summary="Get session details",
     description="Retrieve complete session information including text regions"
 )
-async def get_session(session_id: str):
+async def get_session(session_id: str, db_session: AsyncSession = Depends(get_db_session)):
     """Get session details by ID."""
     try:
-        session = get_session_or_404(session_id)
+        session = await get_session_or_404(session_id, db_session)
         session_dto = convert_session_to_dto(session)
         
         return SessionDetailResponse(session=session_dto)
@@ -349,17 +358,17 @@ async def get_session(session_id: str):
 async def update_text_regions(
     session_id: str,
     request: UpdateTextRegionsRequest,
-    update_use_case: UpdateTextRegionsUseCase = Depends(get_update_use_case)
+    update_use_case: UpdateTextRegionsUseCase = Depends(get_update_use_case),
+    db_session: AsyncSession = Depends(get_db_session)
 ):
     """Update text regions for a session."""
     try:
-        session = get_session_or_404(session_id)
+        session = await get_session_or_404(session_id, db_session)
         
         # Execute update with mode and CSV export control
         updated_session = await update_use_case.execute(session, request.regions, request.mode, request.export_csv)
         
-        # Update stored session
-        _sessions[session_id] = updated_session
+        # Session is already updated in database by update_use_case.execute
         
         logger.info(f"Updated {len(request.regions)} regions for session {session_id} (mode: {request.mode})")
         
@@ -387,10 +396,10 @@ async def update_text_regions(
     summary="Get original image",
     description="Get the original uploaded image for display"
 )
-async def get_original_image(session_id: str):
+async def get_original_image(session_id: str, db_session: AsyncSession = Depends(get_db_session)):
     """Get the original uploaded image."""
     try:
-        session = get_session_or_404(session_id)
+        session = await get_session_or_404(session_id, db_session)
         
         if not session.original_image:
             raise HTTPException(
@@ -425,10 +434,10 @@ async def get_original_image(session_id: str):
     summary="Download processed image",
     description="Download the processed image with text removed"
 )
-async def download_result(session_id: str):
+async def download_result(session_id: str, db_session: AsyncSession = Depends(get_db_session)):
     """Download the processed image result."""
     try:
-        session = get_session_or_404(session_id)
+        session = await get_session_or_404(session_id, db_session)
         
         if session.status not in [SessionStatus.COMPLETED, SessionStatus.GENERATED]:
             raise HTTPException(
@@ -472,11 +481,12 @@ async def download_result(session_id: str):
 )
 async def download_regions_csv(
     session_id: str,
-    file_service: FileStorageService = Depends(get_file_service)
+    file_service: FileStorageService = Depends(get_file_service),
+    db_session: AsyncSession = Depends(get_db_session)
 ):
     """Download the exported text regions CSV file."""
     try:
-        session = get_session_or_404(session_id)
+        session = await get_session_or_404(session_id, db_session)
         
         # Check if CSV file exists in exports directory
         csv_filename = f"{session.original_image.id}_regions.csv"  # Match naming convention
@@ -508,41 +518,100 @@ async def download_regions_csv(
 
 
 @router.delete(
-    "/sessions/{session_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete session",
-    description="Delete a session and clean up associated files"
+    "/sessions/bulk",
+    response_model=BulkDeleteResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Bulk delete sessions",
+    description="Delete multiple sessions and clean up associated files"
 )
-async def delete_session(
-    session_id: str,
-    file_service: FileStorageService = Depends(get_file_service)
+async def bulk_delete_sessions(
+    request: BulkDeleteRequest,
+    file_service: FileStorageService = Depends(get_file_service),
+    db_session: AsyncSession = Depends(get_db_session)
 ):
-    """Delete a session and clean up files."""
+    """Delete multiple sessions and clean up their files."""
     try:
-        session = get_session_or_404(session_id)
+        repository = SessionRepository(db_session)
+        deleted_sessions = []
+        failed_sessions = []
         
-        # Clean up files
-        files_to_delete = [session.original_image.path]
-        if session.processed_image:
-            files_to_delete.append(session.processed_image.path)
+        logger.info(f"Starting bulk deletion of {len(request.session_ids)} sessions")
         
-        for file_path in files_to_delete:
-            if os.path.exists(file_path):
-                file_service.delete_file(file_path)
+        for session_id in request.session_ids:
+            try:
+                # Get session
+                session = await repository.get_by_id(session_id)
+                if not session:
+                    failed_sessions.append({
+                        "session_id": session_id,
+                        "error": "Session not found"
+                    })
+                    continue
+                
+                # Clean up files
+                files_to_delete = [session.original_image.path]
+                if session.processed_image:
+                    files_to_delete.append(session.processed_image.path)
+                
+                # Delete files from disk
+                for file_path in files_to_delete:
+                    if os.path.exists(file_path):
+                        try:
+                            file_service.delete_file(file_path)
+                        except Exception as file_error:
+                            logger.warning(f"Failed to delete file {file_path}: {file_error}")
+                
+                # Delete CSV export file if exists
+                try:
+                    csv_filename = f"{session.original_image.id}_regions.csv"
+                    csv_path = file_service.get_export_path(csv_filename)
+                    if csv_path.exists():
+                        csv_path.unlink()
+                except Exception as csv_error:
+                    logger.warning(f"Failed to delete CSV file for session {session_id}: {csv_error}")
+                
+                # Remove from database
+                await repository.delete(session_id)
+                deleted_sessions.append(session_id)
+                
+                logger.info(f"Successfully deleted session {session_id}")
+                
+            except Exception as session_error:
+                logger.error(f"Failed to delete session {session_id}: {session_error}")
+                failed_sessions.append({
+                    "session_id": session_id,
+                    "error": str(session_error)
+                })
         
-        # Remove from session storage
-        del _sessions[session_id]
+        # Prepare response
+        total_deleted = len(deleted_sessions)
+        total_requested = len(request.session_ids)
         
-        logger.info(f"Deleted session {session_id}")
+        if total_deleted == total_requested:
+            message = f"Successfully deleted all {total_deleted} sessions"
+        elif total_deleted > 0:
+            message = f"Deleted {total_deleted} of {total_requested} sessions ({len(failed_sessions)} failed)"
+        else:
+            message = f"Failed to delete all {total_requested} sessions"
         
-    except HTTPException:
-        raise
+        logger.info(f"Bulk deletion completed: {total_deleted}/{total_requested} successful")
+        
+        return BulkDeleteResponse(
+            deleted_sessions=deleted_sessions,
+            failed_sessions=failed_sessions,
+            total_requested=total_requested,
+            total_deleted=total_deleted,
+            message=message
+        )
+        
     except Exception as e:
-        logger.error(f"Failed to delete session {session_id}: {e}")
+        logger.error(f"Bulk deletion operation failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete session: {str(e)}"
+            detail=f"Bulk deletion failed: {str(e)}"
         )
+
+
 
 
 
@@ -637,18 +706,13 @@ async def service_info(
 )
 async def generate_text_in_regions(
     session_id: str,
-    request: GenerateTextRequest
+    request: GenerateTextRequest,
+    db_session: AsyncSession = Depends(get_db_session)
 ):
     """Generate text in specified regions."""
     try:
-        # Get session
-        if session_id not in _sessions:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Session {session_id} not found"
-            )
-        
-        session = _sessions[session_id]
+        # Get session from database
+        session = await get_session_or_404(session_id, db_session)
         
         # Validate session state
         if session.status not in [SessionStatus.DETECTED, SessionStatus.EDITING, SessionStatus.COMPLETED, SessionStatus.GENERATED]:
@@ -669,8 +733,7 @@ async def generate_text_in_regions(
         text_generation_use_case = GenerateTextInRegionsUseCase()
         updated_session = await text_generation_use_case.execute(session, regions_with_text)
         
-        # Update session in storage
-        _sessions[session_id] = updated_session
+        # Session is already updated in database by use case
         
         # Return response
         return GenerateTextResponse(
@@ -699,18 +762,13 @@ async def generate_text_in_regions(
 )
 async def preview_text_generation(
     session_id: str,
-    request: GenerateTextRequest
+    request: GenerateTextRequest,
+    db_session: AsyncSession = Depends(get_db_session)
 ):
     """Preview text generation without creating the actual image."""
     try:
-        # Get session
-        if session_id not in _sessions:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Session {session_id} not found"
-            )
-        
-        session = _sessions[session_id]
+        # Get session from database
+        session = await get_session_or_404(session_id, db_session)
         
         # Convert request to use case format
         regions_with_text = []
@@ -748,18 +806,13 @@ async def preview_text_generation(
 )
 async def restore_session_state(
     session_id: str,
-    request: RestoreSessionRequest
+    request: RestoreSessionRequest,
+    db_session: AsyncSession = Depends(get_db_session)
 ):
     """Restore session state for undo operations."""
     try:
-        # Get session
-        if session_id not in _sessions:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Session {session_id} not found"
-            )
-        
-        session = _sessions[session_id]
+        # Get session from database
+        session = await get_session_or_404(session_id, db_session)
         logger.info(f"Restoring session {session_id} state")
         
         # Update processed image if provided
@@ -802,8 +855,9 @@ async def restore_session_state(
             session.processed_text_regions = []
             logger.info("Set processed_text_regions to empty")
         
-        # Update session in storage
-        _sessions[session_id] = session
+        # Update session in database
+        repository = SessionRepository(db_session)
+        await repository.update(session)
         
         # Convert to DTO and return
         session_dto = convert_session_to_dto(session)
@@ -831,11 +885,12 @@ async def restore_session_state(
 )
 async def process_text_removal_async(
     session_id: str,
-    request: ProcessTextRemovalAsyncRequest = ProcessTextRemovalAsyncRequest()
+    request: ProcessTextRemovalAsyncRequest = ProcessTextRemovalAsyncRequest(),
+    db_session: AsyncSession = Depends(get_db_session)
 ):
     """Start async text removal processing for a session."""
     try:
-        session = get_session_or_404(session_id)
+        session = await get_session_or_404(session_id, db_session)
         async_processor = get_global_async_processor()
         
         # Update session regions if provided
@@ -874,7 +929,9 @@ async def process_text_removal_async(
                 updated_regions.append(region)
             
             session.text_regions = updated_regions
-            _sessions[session_id] = session
+            # Update session in database
+            repository = SessionRepository(db_session)
+            await repository.update(session)
         
         # Validate session for async processing
         validation = async_processor.validate_async_processing_request(
@@ -1007,7 +1064,7 @@ async def cancel_task(task_id: str):
 
 
 @router.post("/iopaint/callback/{task_id}")
-async def iopaint_callback(task_id: str, request: Request):
+async def iopaint_callback(task_id: str, request: Request, db_session: AsyncSession = Depends(get_db_session)):
     """
     Receive processing results from IOPaint service.
     
@@ -1039,13 +1096,14 @@ async def iopaint_callback(task_id: str, request: Request):
             logger.warning(f"Backend task {backend_task_id} not found in async processor")
             return {"status": "error", "message": "Backend task not found"}
         
-        # Get session
+        # Get session from database
         session_id = task_info.session_id
-        if session_id not in _sessions:
+        repository = SessionRepository(db_session)
+        session = await repository.get_by_id(session_id)
+        
+        if not session:
             logger.warning(f"Session {session_id} not found for callback")
             return {"status": "error", "message": "Session not found"}
-        
-        session = _sessions[session_id]
         
         # Extract image data from callback
         image_base64 = callback_data.get("image_data")
@@ -1084,8 +1142,8 @@ async def iopaint_callback(task_id: str, request: Request):
             session.processed_image = processed_image
             session.status = SessionStatus.COMPLETED
             
-            # Update session in storage
-            _sessions[session_id] = session
+            # Update session in database
+            await repository.update(session)
             
             # Update task info in async processor
             task_info.status = "completed"
@@ -1099,6 +1157,20 @@ async def iopaint_callback(task_id: str, request: Request):
                 "regions_processed": callback_data.get("regions_processed", 0)
             }
             
+            # Send WebSocket completion notification to frontend
+            from app.websocket.connection_manager import connection_manager
+            progress_message = {
+                "task_id": task_info.task_id,
+                "status": task_info.status,
+                "stage": task_info.stage,
+                "progress": task_info.progress,
+                "message": task_info.message,
+                "session_id": task_info.session_id,
+                "processed_image_url": f"/api/v1/sessions/{task_info.session_id}/result",
+                "timestamp": datetime.now().isoformat()
+            }
+            await connection_manager.broadcast_to_task(task_info.task_id, progress_message)
+            
             logger.info(f"Successfully processed IOPaint callback for task {backend_task_id}")
             
             return {"status": "success", "message": "Callback processed successfully"}
@@ -1110,3 +1182,150 @@ async def iopaint_callback(task_id: str, request: Request):
     except Exception as e:
         logger.error(f"Error processing IOPaint callback for task {task_id}: {e}")
         return {"status": "error", "message": f"Callback processing error: {str(e)}"}
+
+
+# Historical sessions endpoints
+@router.get("/sessions", response_model=List[dict])
+async def list_sessions(
+    limit: int = 50,
+    offset: int = 0,
+    status: Optional[str] = None,
+    db: AsyncSession = Depends(get_db_session)
+):
+    """
+    List historical sessions with pagination and filtering.
+    
+    Args:
+        limit: Maximum number of sessions to return (1-100)
+        offset: Number of sessions to skip
+        status: Optional status filter
+        db: Database session
+        
+    Returns:
+        List of session summaries
+    """
+    try:
+        use_case = ListSessionsUseCase(db)
+        sessions = await use_case.execute(
+            limit=limit,
+            offset=offset,
+            status_filter=status
+        )
+        
+        # Convert to response format
+        session_summaries = []
+        for session in sessions:
+            session_summaries.append({
+                "session_id": session.id,
+                "filename": session.original_image.filename,
+                "status": session.status.value,
+                "created_at": session.created_at.isoformat(),
+                "region_count": len(session.text_regions),
+                "image_dimensions": {
+                    "width": session.original_image.dimensions.width,
+                    "height": session.original_image.dimensions.height
+                } if session.original_image.dimensions else None
+            })
+        
+        return session_summaries
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to list sessions: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/sessions/{session_id}/restore")
+async def restore_session(
+    session_id: str,
+    db: AsyncSession = Depends(get_db_session)
+):
+    """
+    Restore a historical session for editing.
+    
+    Args:
+        session_id: ID of session to restore
+        db: Database session
+        
+    Returns:
+        Complete session data
+    """
+    try:
+        use_case = ListSessionsUseCase(db)
+        session = await use_case.get_by_id(session_id)
+        
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Convert to response format (similar to get_session)
+        return _convert_session_to_response(session)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to restore session {session_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/statistics")
+async def get_statistics(db: AsyncSession = Depends(get_db_session)):
+    """
+    Get processing statistics and analytics.
+    
+    Args:
+        db: Database session
+        
+    Returns:
+        Statistics data
+    """
+    try:
+        use_case = SessionStatisticsUseCase(db)
+        stats = await use_case.execute()
+        
+        # Add computed metrics
+        stats["success_rate"] = (
+            stats["status_distribution"].get("completed", 0) + 
+            stats["status_distribution"].get("generated", 0)
+        ) / max(stats["total_sessions"], 1) * 100
+        
+        return {
+            "total_sessions": stats["total_sessions"],
+            "status_distribution": stats["status_distribution"],
+            "total_regions": stats["total_regions"],
+            "average_confidence": round(stats["average_confidence"], 2),
+            "success_rate": round(stats["success_rate"], 2),
+            "category_distribution": stats["category_distribution"]
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get statistics: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post(
+    "/admin/cleanup",
+    status_code=status.HTTP_200_OK,
+    summary="Manual cleanup",
+    description="Manually clean all files and database records (for development/testing)"
+)
+async def manual_cleanup():
+    """Manually clean all files and database records."""
+    try:
+        # Import the cleanup function from main.py
+        from app.main import cleanup_cache_directories
+        
+        # Execute cleanup
+        cleanup_cache_directories()
+        
+        return {
+            "message": "Cleanup completed successfully",
+            "cleaned": ["uploads", "processed", "exports", "database"]
+        }
+        
+    except Exception as e:
+        logger.error(f"Manual cleanup failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Cleanup failed: {str(e)}"
+        )
