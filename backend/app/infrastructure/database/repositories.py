@@ -341,7 +341,7 @@ class TextRegionRepository(BaseRepository):
         try:
             # Delete existing regions of the same type - use proper delete syntax
             from sqlalchemy import delete
-            await self.session.execute(
+            delete_result = await self.session.execute(
                 delete(TextRegionModel).where(
                     and_(
                         TextRegionModel.session_id == session_id,
@@ -349,6 +349,10 @@ class TextRegionRepository(BaseRepository):
                     )
                 )
             )
+            logger.info(f"Deleted {delete_result.rowcount} existing {region_type} regions for session {session_id}")
+            
+            # Flush the delete to ensure it's applied before insert
+            await self.session.flush()
             
             # Add new regions
             for region in regions:

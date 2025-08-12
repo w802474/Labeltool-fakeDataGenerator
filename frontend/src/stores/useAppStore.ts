@@ -412,7 +412,7 @@ export const useAppStore = create<AppStore>()(
           }
         },
 
-        updateTextRegions: async (regions, mode = 'auto', exportCsv = true, manageLoadingState = true) => {
+        updateTextRegions: async (regions, mode = 'auto', exportCsv = true, manageLoadingState = true, sessionId?: string) => {
           const { currentSession, setLoading, setError, setCurrentSession } = get();
           
           if (!currentSession) {
@@ -425,8 +425,9 @@ export const useAppStore = create<AppStore>()(
               setError(null);
             }
             
+            const targetSessionId = sessionId || currentSession.id;
             const updatedSession = await apiService.updateTextRegions(
-              currentSession.id,
+              targetSessionId,
               regions,
               mode,
               exportCsv
@@ -575,7 +576,7 @@ export const useAppStore = create<AppStore>()(
           }
         },
 
-        generateTextInRegions: async () => {
+        generateTextInRegions: async (sessionId?: string) => {
           const { currentSession, setLoading, setError, setCurrentSession, setImageDisplayMode, setShowRegionOverlay, updateTextRegions, processingState } = get();
           
           if (!currentSession) {
@@ -594,6 +595,9 @@ export const useAppStore = create<AppStore>()(
               ? JSON.parse(JSON.stringify(currentSession.processed_text_regions))
               : [];
             
+            // Get the target session ID first
+            const targetSessionId = sessionId || currentSession.id;
+            
             // Get the regions to work with based on current display mode - use getCurrentDisplayRegions for consistency
             const regionsToSync = get().getCurrentDisplayRegions();
             
@@ -601,7 +605,7 @@ export const useAppStore = create<AppStore>()(
             const updateMode = processingState.displayMode === 'processed' ? 'processed' : 'ocr';
             
             // First, sync current regions to backend to ensure coordinates are up-to-date (without CSV export)
-            await updateTextRegions(regionsToSync, updateMode, false, false);
+            await updateTextRegions(regionsToSync, updateMode, false, false, targetSessionId);
             
             // Wait a bit for state synchronization
             await new Promise(resolve => setTimeout(resolve, 100));
@@ -622,13 +626,13 @@ export const useAppStore = create<AppStore>()(
             }
 
             const updatedSession = await apiService.generateTextInRegions(
-              currentSession.id,
+              targetSessionId,
               regionsWithText
             );
             
             // Create undo command for text generation
             const generateCommand = createGenerateTextCommand(
-              currentSession.id,
+              targetSessionId,
               oldProcessedImage,
               updatedSession.processed_image || null,
               oldProcessedRegions,
@@ -739,9 +743,19 @@ export const useAppStore = create<AppStore>()(
             });
             
             // Update session state with fresh timestamp to force UI refresh
+            const now = new Date().toISOString();
+            console.log('[GenerateText] Updating session state with:', {
+              sessionId: updatedSession.id,
+              hasProcessedImage: !!updatedSession.processed_image,
+              processedRegionsCount: updatedSession.processed_text_regions?.length || 0,
+              timestamp: now
+            });
+            
             setCurrentSession({
               ...updatedSession,
-              updated_at: new Date().toISOString()
+              updated_at: now,
+              // Force image refresh with unique timestamp
+              _forceRefresh: now
             });
             
             // Automatically switch to processed image view to show the generated text

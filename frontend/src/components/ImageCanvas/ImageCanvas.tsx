@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { useParams } from 'react-router-dom';
 import { Stage, Layer, Image as KonvaImage, Rect, Text, Line } from 'react-konva';
 // @ts-ignore
 import useImage from 'use-image';
@@ -44,6 +45,7 @@ const getContainerDimensions = () => {
 };
 
 export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
+  const { sessionId } = useParams<{ sessionId: string }>();
   const { 
     currentSession, 
     setSelectedRegion, 
@@ -74,33 +76,51 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
   const progressData = useProcessingProgress({
     taskId: currentTaskId,
     onComplete: async (result) => {
+      // Only handle completion events for the current session
+      if (result.session_id !== sessionId) {
+        return;
+      }
+      
       // Refresh session to get the latest data (including processed image)
-      if (currentSession) {
+      if (result.session_id) {
         try {
-          const updatedSession = await apiService.getSession(currentSession.id);
+          const updatedSession = await apiService.getSession(result.session_id);
           
-          // Update session first, then switch display mode
+          // Force timestamp update for aggressive cache busting
+          const now = new Date().toISOString();
           setCurrentSession({
             ...updatedSession,
-            updated_at: new Date().toISOString() // Force timestamp update for cache busting
+            updated_at: now,
+            // Also force a unique timestamp to ensure React detects the change
+            _forceRefresh: now
           });
           
-          // Use a small delay to ensure state updates are applied
+          // Use a small delay to ensure state updates are applied, then switch display mode
           setTimeout(() => {
             setImageDisplayMode('processed');
+            // Clear task ID after switching display mode
+            setCurrentTaskId(null);
           }, 100);
           
         } catch (error) {
           console.error('Failed to refresh session after completion:', error);
-          // Still switch to processed mode even if refresh fails
+          // Still try to update session timestamp and switch to processed mode
+          const now = new Date().toISOString();
+          setCurrentSession({
+            ...currentSession,
+            updated_at: now,
+            _forceRefresh: now
+          });
           setTimeout(() => {
             setImageDisplayMode('processed');
+            // Clear task ID after switching display mode
+            setCurrentTaskId(null);
           }, 100);
         }
+      } else {
+        // Clear task ID even if no current session
+        setCurrentTaskId(null);
       }
-      
-      // Clear task ID
-      setCurrentTaskId(null);
     },
     onCancel: () => {
       setCurrentTaskId(null);
@@ -111,9 +131,9 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
     }
   });
   
-  // Determine image URL based on display mode and session state
-  const getImageUrl = () => {
-    if (!currentSession) return '';
+  // Memoize image URL to ensure it updates when dependencies change
+  const imageUrl = useMemo(() => {
+    if (!sessionId || !currentSession) return '';
     
     const displayMode = processingState.displayMode;
     const hasProcessedImage = !!currentSession.processed_image;
@@ -122,14 +142,23 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
     if (displayMode === 'processed' && hasProcessedImage) {
       // Add cache-busting parameter using the session's updated timestamp
       const timestamp = new Date(currentSession.updated_at).getTime();
-      return `/api/v1/sessions/${currentSession.id}/result?t=${timestamp}`;
+      return `/api/v1/sessions/${sessionId}/result?t=${timestamp}`;
     }
     
     // Otherwise show original image
-    return `/api/v1/sessions/${currentSession.id}/image`;
-  };
+    return `/api/v1/sessions/${sessionId}/image`;
+  }, [
+    sessionId, 
+    currentSession?.processed_image, 
+    currentSession?.updated_at,
+    (currentSession as any)?._forceRefresh, // Force URL refresh when this changes
+    processingState.displayMode
+  ]);
   
-  const [image] = useImage(getImageUrl());
+  const [image] = useImage(imageUrl);
+  
+  
+  
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<Point | null>(null);
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -146,6 +175,7 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
   const [draggedHandle, setDraggedHandle] = useState<string | null>(null); // 'tl', 'tr', 'bl', 'br', 'move'
   const [initialRegionBounds, setInitialRegionBounds] = useState<Rectangle | null>(null);
   const [regionDragStart, setRegionDragStart] = useState<Point | null>(null);
+  
   
   // Cursor state management
   const [currentCursor, setCurrentCursor] = useState<string>('default');

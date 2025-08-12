@@ -112,13 +112,15 @@ class UpdateTextRegionsUseCase:
             if self.db_session:
                 try:
                     await self.session_repository.update(session)
-                    # Update regions in database based on update mode
-                    regions_to_sync = session.processed_text_regions if update_mode == "processed" else session.text_regions
-                    if regions_to_sync:
+                    # Only sync OCR regions to database to avoid ID conflicts
+                    # Processed regions are kept in memory only as they share IDs with OCR regions
+                    if update_mode == "ocr" and session.text_regions:
                         await self.region_repository.update_regions_for_session(
-                            session.id, regions_to_sync, update_mode
+                            session.id, session.text_regions, "ocr"
                         )
-                    logger.info(f"Session {session.id} synchronized to database")
+                        logger.info(f"OCR regions synchronized to database for session {session.id}")
+                    elif update_mode == "processed":
+                        logger.info(f"Processed regions kept in memory only for session {session.id} (no database sync)")
                 except Exception as db_error:
                     logger.error(f"Failed to sync session to database: {db_error}")
                     # Don't fail the main operation for database errors

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { 
   ZoomIn, 
   ZoomOut, 
@@ -45,6 +45,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   setIsUploading 
 }) => {
   const navigate = useNavigate();
+  const { sessionId } = useParams<{ sessionId: string }>();
   const {
     currentSession,
     isLoading,
@@ -123,7 +124,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
   const handleGenerateText = async () => {
     try {
-      await generateTextInRegions();
+      await generateTextInRegions(sessionId);
       showToast?.('Successfully generated text in regions!');
     } catch (error) {
       console.error('Text generation failed:', error);

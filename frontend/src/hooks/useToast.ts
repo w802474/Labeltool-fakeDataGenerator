@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 interface ToastOptions {
   message: string;
@@ -15,6 +15,14 @@ export const useToast = () => {
     
     // Add new message to the beginning of array so it appears at the top
     setToasts(prev => [toast, ...prev]);
+    
+    // Auto-remove after duration (default 3 seconds)
+    const duration = options.duration ?? 3000;
+    if (duration > 0) {
+      setTimeout(() => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+      }, duration);
+    }
   }, []);
 
   const removeToast = useCallback((id: string) => {

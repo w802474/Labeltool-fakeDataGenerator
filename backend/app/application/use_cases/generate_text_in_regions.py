@@ -166,8 +166,24 @@ class GenerateTextInRegionsUseCase:
                 dimensions=Dimensions(width=width, height=height)
             )
             
-            # Update session with new processed image and transition to GENERATED status
+            # Update session with new processed image and save modified regions
             session.processed_image = processed_image
+            
+            # Save the modified regions back to session
+            # Extract all processed regions with their updated user_input_text
+            if session.processed_text_regions is None:
+                session.initialize_processed_regions()
+            
+            # Update processed_text_regions with the modified regions from regions_to_render
+            for processed_region, user_text, font_properties in regions_to_render:
+                # Find and update the corresponding region in session.processed_text_regions
+                for i, session_region in enumerate(session.processed_text_regions):
+                    if session_region.id == processed_region.id:
+                        # Update the session region with the modified data
+                        session_region.set_user_input_text(user_text)
+                        session_region.set_font_properties(font_properties.to_dict())
+                        break
+            
             session.transition_to_status(SessionStatus.GENERATED)
             
             logger.info(f"Text generation completed successfully: {output_image_path}")
