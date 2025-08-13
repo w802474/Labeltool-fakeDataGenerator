@@ -183,7 +183,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
   const getStatusText = (status: string): string => {
     switch (status.toLowerCase()) {
       case 'detected': return 'OCR Done';
-      case 'completed': return 'Processing Complete';
+      case 'removed': return 'Text Removed';
       case 'generated': return 'Text Generated';
       case 'processing': return 'Processing';
       case 'failed': return 'Failed';
@@ -194,7 +194,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
   const getStatusColor = (status: string): string => {
     switch (status.toLowerCase()) {
       case 'detected': return 'bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-200';
-      case 'completed': return 'bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-200';
+      case 'removed': return 'bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-200';
       case 'generated': return 'bg-purple-100 text-purple-800 dark:bg-purple-800 dark:text-purple-200';
       case 'processing': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-800 dark:text-yellow-200';
       case 'failed': return 'bg-red-100 text-red-800 dark:bg-red-800 dark:text-red-200';

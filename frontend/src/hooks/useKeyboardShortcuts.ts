@@ -71,7 +71,7 @@ export const useKeyboardShortcuts = () => {
       key: 'd',
       ctrlKey: true,
       action: () => {
-        if (currentSession && currentSession.status === 'completed') {
+        if (currentSession && currentSession.status === 'removed') {
           downloadResult();
         }
       },

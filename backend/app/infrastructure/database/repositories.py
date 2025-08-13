@@ -233,7 +233,8 @@ class SessionRepository(BaseRepository):
                 "y": region.original_box_size.y,
                 "width": region.original_box_size.width,
                 "height": region.original_box_size.height
-            } if region.original_box_size else None
+            } if region.original_box_size else None,
+            original_region_id=getattr(region, 'original_region_id', None)
         )
     
     def _convert_model_to_domain(self, model: SessionModel) -> LabelSession:
@@ -337,30 +338,98 @@ class TextRegionRepository(BaseRepository):
         regions: List[TextRegion],
         region_type: str = "ocr"
     ) -> None:
-        """Update all regions for a session."""
+        """Update all regions for a session using upsert logic."""
         try:
-            # Delete existing regions of the same type - use proper delete syntax
-            from sqlalchemy import delete
-            delete_result = await self.session.execute(
-                delete(TextRegionModel).where(
+            from sqlalchemy import select, delete
+            from sqlalchemy.dialects.mysql import insert
+            
+            # Get existing region IDs for this session and type
+            existing_result = await self.session.execute(
+                select(TextRegionModel.id).where(
                     and_(
                         TextRegionModel.session_id == session_id,
                         TextRegionModel.region_type == region_type
                     )
                 )
             )
-            logger.info(f"Deleted {delete_result.rowcount} existing {region_type} regions for session {session_id}")
+            existing_ids = {row[0] for row in existing_result.all()}
             
-            # Flush the delete to ensure it's applied before insert
-            await self.session.flush()
+            # Track regions to upsert and regions to delete
+            incoming_ids = {region.id for region in regions}
+            ids_to_delete = existing_ids - incoming_ids
             
-            # Add new regions
+            # Delete regions that are no longer needed
+            if ids_to_delete:
+                delete_result = await self.session.execute(
+                    delete(TextRegionModel).where(
+                        and_(
+                            TextRegionModel.session_id == session_id,
+                            TextRegionModel.region_type == region_type,
+                            TextRegionModel.id.in_(ids_to_delete)
+                        )
+                    )
+                )
+                logger.info(f"Deleted {delete_result.rowcount} obsolete {region_type} regions for session {session_id}")
+            
+            # Upsert each region (update if exists, insert if not)
+            upsert_count = 0
             for region in regions:
-                region_model = self._convert_region_to_model(region, session_id, region_type)
-                self.session.add(region_model)
+                region_data = {
+                    'id': region.id,
+                    'session_id': session_id,
+                    'region_type': region_type,
+                    'bounding_box_json': {
+                        "x": region.bounding_box.x,
+                        "y": region.bounding_box.y,
+                        "width": region.bounding_box.width,
+                        "height": region.bounding_box.height
+                    },
+                    'corners_json': [
+                        {"x": point.x, "y": point.y} for point in region.corners
+                    ],
+                    'confidence': region.confidence,
+                    'original_text': region.original_text,
+                    'edited_text': region.edited_text,
+                    'user_input_text': region.user_input_text,
+                    'is_selected': region.is_selected,
+                    'is_user_modified': region.is_user_modified,
+                    'is_size_modified': region.is_size_modified,
+                    'text_category': region.text_category,
+                    'category_config_json': region.category_config,
+                    'font_properties_json': region.font_properties,
+                    'original_box_size_json': {
+                        "x": region.original_box_size.x,
+                        "y": region.original_box_size.y,
+                        "width": region.original_box_size.width,
+                        "height": region.original_box_size.height
+                    } if region.original_box_size else None,
+                    'original_region_id': getattr(region, 'original_region_id', None)
+                }
+                
+                # Use MySQL INSERT ... ON DUPLICATE KEY UPDATE for upsert behavior
+                stmt = insert(TextRegionModel).values(**region_data)
+                stmt = stmt.on_duplicate_key_update(
+                    bounding_box_json=stmt.inserted.bounding_box_json,
+                    corners_json=stmt.inserted.corners_json,
+                    confidence=stmt.inserted.confidence,
+                    original_text=stmt.inserted.original_text,
+                    edited_text=stmt.inserted.edited_text,
+                    user_input_text=stmt.inserted.user_input_text,
+                    is_selected=stmt.inserted.is_selected,
+                    is_user_modified=stmt.inserted.is_user_modified,
+                    is_size_modified=stmt.inserted.is_size_modified,
+                    text_category=stmt.inserted.text_category,
+                    category_config_json=stmt.inserted.category_config_json,
+                    font_properties_json=stmt.inserted.font_properties_json,
+                    original_box_size_json=stmt.inserted.original_box_size_json,
+                    original_region_id=stmt.inserted.original_region_id
+                )
+                
+                await self.session.execute(stmt)
+                upsert_count += 1
             
             await self.session.commit()
-            logger.info(f"Updated {len(regions)} {region_type} regions for session {session_id}")
+            logger.info(f"Upserted {upsert_count} {region_type} regions for session {session_id}")
             
         except Exception as e:
             await self.session.rollback()
@@ -397,5 +466,6 @@ class TextRegionRepository(BaseRepository):
                 "y": region.original_box_size.y,
                 "width": region.original_box_size.width,
                 "height": region.original_box_size.height
-            } if region.original_box_size else None
+            } if region.original_box_size else None,
+            original_region_id=getattr(region, 'original_region_id', None)
         )

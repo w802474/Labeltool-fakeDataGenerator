@@ -35,7 +35,7 @@ class GenerateTextInRegionsUseCase:
         Raises:
             ValueError: If session is not in a valid state for text generation
         """
-        if session.status not in [SessionStatus.DETECTED, SessionStatus.EDITING, SessionStatus.COMPLETED, SessionStatus.GENERATED]:
+        if session.status not in [SessionStatus.DETECTED, SessionStatus.EDITING, SessionStatus.REMOVED, SessionStatus.GENERATED]:
             raise ValueError(f"Session {session.id} is not ready for text generation (status: {session.status.value})")
         
         logger.info(f"Starting text generation for session {session.id}")
@@ -148,7 +148,8 @@ class GenerateTextInRegionsUseCase:
             output_image_path = self.text_renderer.render_multiple_texts(
                 image_path=base_image_path,
                 text_regions_with_text=regions_to_render,
-                output_dir="processed"
+                output_dir="generated",
+                session_id=session.id
             )
             
             # Update session with new processed image
@@ -156,9 +157,9 @@ class GenerateTextInRegionsUseCase:
             with Image.open(output_image_path) as img:
                 width, height = img.size
             
-            # Create new ImageFile for processed result
-            processed_image = ImageFile(
-                id=f"processed_{session.id}",
+            # Create new ImageFile for generated result
+            generated_image = ImageFile(
+                id=f"generated_{session.id}",
                 filename=Path(output_image_path).name,
                 path=output_image_path,
                 mime_type="image/png",
@@ -166,23 +167,12 @@ class GenerateTextInRegionsUseCase:
                 dimensions=Dimensions(width=width, height=height)
             )
             
-            # Update session with new processed image and save modified regions
-            session.processed_image = processed_image
+            # Update session with new generated image and save modified regions
+            session.processed_image = generated_image
             
-            # Save the modified regions back to session
-            # Extract all processed regions with their updated user_input_text
-            if session.processed_text_regions is None:
-                session.initialize_processed_regions()
-            
-            # Update processed_text_regions with the modified regions from regions_to_render
-            for processed_region, user_text, font_properties in regions_to_render:
-                # Find and update the corresponding region in session.processed_text_regions
-                for i, session_region in enumerate(session.processed_text_regions):
-                    if session_region.id == processed_region.id:
-                        # Update the session region with the modified data
-                        session_region.set_user_input_text(user_text)
-                        session_region.set_font_properties(font_properties.to_dict())
-                        break
+            # Force update the session timestamp to ensure frontend cache invalidation
+            from datetime import datetime
+            session.updated_at = datetime.now()
             
             session.transition_to_status(SessionStatus.GENERATED)
             
@@ -279,17 +269,21 @@ class GenerateTextInRegionsUseCase:
     
     def _find_region_by_id(self, regions: List[TextRegion], region_id: str) -> TextRegion:
         """
-        Find a text region by its ID.
+        Find a text region by its ID or original_region_id.
         
         Args:
             regions: List of text regions
-            region_id: ID to search for
+            region_id: ID to search for (could be original OCR region ID)
             
         Returns:
             TextRegion if found, None otherwise
         """
         for region in regions:
+            # First try direct ID match
             if region.id == region_id:
+                return region
+            # For processed regions, also try original_region_id match
+            if hasattr(region, 'original_region_id') and region.original_region_id == region_id:
                 return region
         return None
     

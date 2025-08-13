@@ -218,7 +218,7 @@ export function useWebSocketProgress(
         const { frequency, recentUpdates } = calculateUpdateFrequency(prev);
         const now = Date.now();
         
-        const isCompleting = update.status === 'completed' && !prev.isCompleted;
+        const isCompleting = update.status === 'removed' && !prev.isCompleted;
         
         return {
           ...prev,
@@ -229,7 +229,7 @@ export function useWebSocketProgress(
           progress: safeProgress,
           message: update.message,
           error: update.error_message || null,
-          isCompleted: update.status === 'completed',
+          isCompleted: update.status === 'removed',
           result: isCompleting ? update.result : prev.result,
           endTime: isCompleting ? new Date() : prev.endTime,
           duration: isCompleting && prev.startTime ? Date.now() - prev.startTime.getTime() : prev.duration,
@@ -241,7 +241,7 @@ export function useWebSocketProgress(
       });
       
       // Check if task completed via progress update
-      if (update.status === 'completed') {
+      if (update.status === 'removed') {
         onCompleted?.({
           task_id: update.task_id,
           session_id: update.session_id,
@@ -262,8 +262,8 @@ export function useWebSocketProgress(
       
       setProgress(prev => ({
         ...prev,
-        status: 'completed',
-        stage: 'completed',
+        status: 'removed',
+        stage: 'removed',
         progress: 100,
         message: 'Processing completed successfully',
         isCompleted: true,

@@ -148,6 +148,14 @@ export const createGenerateTextCommand = (
     // Text generation already executed, this is just for history tracking
   },
   undo: () => {
+    // Debug logging for undo operation
+    console.log('Generate Undo: Restoring to old state', {
+      oldProcessedImagePath: oldProcessedImage?.path,
+      oldProcessedRegionsCount: oldProcessedRegions.length,
+      regionsWithUserText: oldProcessedRegions.filter(r => r.user_input_text && r.user_input_text.trim()).length,
+      displayMode
+    });
+    
     restoreSessionFunction({
       processed_image: oldProcessedImage,
       processed_text_regions: oldProcessedRegions,

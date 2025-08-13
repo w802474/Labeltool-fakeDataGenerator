@@ -122,7 +122,7 @@ interface AppStore extends AppState {
   // Undo system actions
   undoLastCommand: () => void;
   canUndo: () => boolean;
-  clearUndoHistory: () => void;
+  clearUndoHistory: (sessionId?: string) => Promise<void>;
   clearOcrHistory: () => void;
   clearProcessedHistory: () => void;
   
@@ -209,6 +209,14 @@ export const useAppStore = create<AppStore>()(
             }
           }
           return state.currentSession.text_regions;
+        },
+
+        // Helper function to handle status transitions when modifying regions
+        transitionToEditingIfNeeded: (session: LabelSession): LabelSession => {
+          if (session.status === 'removed' || session.status === 'generated') {
+            return { ...session, status: 'editing' };
+          }
+          return session;
         },
 
         // Basic setters
@@ -401,7 +409,7 @@ export const useAppStore = create<AppStore>()(
 
             const session = await apiService.createSessionWithProgress(file, onProgress);
             setCurrentSession(session);
-            clearUndoHistory(); // Clear undo history for new session
+            await clearUndoHistory(); // Clear undo history for new session
             return session;
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Failed to create session';
@@ -587,13 +595,19 @@ export const useAppStore = create<AppStore>()(
             setLoading(true);
             setError(null);
             
-            // Store old state for undo
+            // Store old state for undo - this should be the current visible processed image and regions
+            // When in processed mode, currentSession.processed_image is the currently visible image
+            // This is what we want to revert TO when undoing the next Generate operation
             const oldProcessedImage = currentSession.processed_image 
               ? JSON.parse(JSON.stringify(currentSession.processed_image))
               : null;
+              
+            // For regions, we want the current processed regions (what's currently applied to the image)
+            // When Generate is called multiple times, this ensures each operation can be undone properly
             const oldProcessedRegions = currentSession.processed_text_regions 
               ? JSON.parse(JSON.stringify(currentSession.processed_text_regions))
               : [];
+            
             
             // Get the target session ID first
             const targetSessionId = sessionId || currentSession.id;
@@ -630,13 +644,18 @@ export const useAppStore = create<AppStore>()(
               regionsWithText
             );
             
+            // Store current processed regions state (with user_input_text) for undo
+            // These are the regions that user was editing before Generate
+            const currentProcessedRegions = currentSession.processed_text_regions || [];
+            
+            
             // Create undo command for text generation
             const generateCommand = createGenerateTextCommand(
               targetSessionId,
               oldProcessedImage,
               updatedSession.processed_image || null,
-              oldProcessedRegions,
-              updatedSession.processed_text_regions || [],
+              currentProcessedRegions, // Old processed regions with user_input_text
+              updatedSession.processed_text_regions || [], // New processed regions (backend cleared user_input_text)
               processingState.displayMode,
               async (sessionData: any) => {
                 // Get the latest session state and update it with restored data
@@ -742,21 +761,23 @@ export const useAppStore = create<AppStore>()(
               }
             });
             
-            // Update session state with fresh timestamp to force UI refresh
-            const now = new Date().toISOString();
-            console.log('[GenerateText] Updating session state with:', {
-              sessionId: updatedSession.id,
-              hasProcessedImage: !!updatedSession.processed_image,
-              processedRegionsCount: updatedSession.processed_text_regions?.length || 0,
-              timestamp: now
+            // Clear user_input_text from regions that were used for generation
+            // This ensures the UI shows clean input fields after generation
+            const regionsUsedForGeneration = new Set(regionsWithText.map(r => r.region_id));
+            const clearedProcessedRegions = currentProcessedRegions.map(region => {
+              if (regionsUsedForGeneration.has(region.id)) {
+                return { ...region, user_input_text: '' };
+              }
+              return region;
             });
             
-            setCurrentSession({
+            const clearedSession = {
               ...updatedSession,
-              updated_at: now,
-              // Force image refresh with unique timestamp
-              _forceRefresh: now
-            });
+              processed_text_regions: clearedProcessedRegions,
+              updated_at: new Date().toISOString()
+            };
+            
+            setCurrentSession(clearedSession);
             
             // Automatically switch to processed image view to show the generated text
             setImageDisplayMode('processed');
@@ -824,23 +845,25 @@ export const useAppStore = create<AppStore>()(
               original_text: region.original_text || "",
               // Record original box size for new region
               original_box_size: { ...regionBbox },
-              is_size_modified: false
+              is_size_modified: false,
+              // Add text category for new region
+              text_category: "other",
+              category_config: {
+                color: "#6B7280",
+                displayName: "Other",
+                description: "Other text content"
+              }
             };
 
             const isOriginalMode = state.processingState.displayMode === 'original';
             let updatedSession;
             
             if (isOriginalMode) {
-              // Add to OCR text_regions
-              updatedSession = {
+              // Add to OCR text_regions and transition status if needed
+              updatedSession = get().transitionToEditingIfNeeded({
                 ...state.currentSession,
                 text_regions: [...state.currentSession.text_regions, newRegion],
-              };
-              
-              // Change status to editing when adding OCR regions
-              if (state.currentSession.status === 'completed' || state.currentSession.status === 'generated') {
-                updatedSession.status = 'editing';
-              }
+              });
             } else {
               // Add to processed_text_regions
               let processedRegions = state.currentSession.processed_text_regions;
@@ -928,16 +951,11 @@ export const useAppStore = create<AppStore>()(
             let updatedSession;
             
             if (isOriginalMode) {
-              // Add to OCR text_regions
-              updatedSession = {
+              // Add to OCR text_regions and transition status if needed
+              updatedSession = get().transitionToEditingIfNeeded({
                 ...state.currentSession,
                 text_regions: [...state.currentSession.text_regions, region],
-              };
-              
-              // Change status to editing when adding OCR regions
-              if (state.currentSession.status === 'completed' || state.currentSession.status === 'generated') {
-                updatedSession.status = 'editing';
-              }
+              });
             } else {
               // Add to processed_text_regions
               let processedRegions = state.currentSession.processed_text_regions;
@@ -973,18 +991,13 @@ export const useAppStore = create<AppStore>()(
             let updatedSession;
             
             if (isOriginalMode) {
-              // Remove from OCR text_regions
-              updatedSession = {
+              // Remove from OCR text_regions and transition status if needed
+              updatedSession = get().transitionToEditingIfNeeded({
                 ...state.currentSession,
                 text_regions: state.currentSession.text_regions.filter(
                   (region) => region.id !== regionId
                 ),
-              };
-              
-              // Change status to editing when removing OCR regions
-              if (state.currentSession.status === 'completed' || state.currentSession.status === 'generated') {
-                updatedSession.status = 'editing';
-              }
+              });
             } else {
               // Remove from processed_text_regions
               let processedRegions = state.currentSession.processed_text_regions;
@@ -1038,9 +1051,8 @@ export const useAppStore = create<AppStore>()(
               };
 
               // Change status to editing when modifying OCR regions structure, but not for simple text updates
-              if ((state.currentSession.status === 'completed' || state.currentSession.status === 'generated') && 
-                  (updates.bounding_box || updates.corners)) {
-                updatedSession.status = 'editing';
+              if (updates.bounding_box || updates.corners) {
+                updatedSession = get().transitionToEditingIfNeeded(updatedSession);
               }
               // Allow text editing without changing status (for annotation purposes)
               // Only position/structure changes trigger editing status
@@ -1099,10 +1111,8 @@ export const useAppStore = create<AppStore>()(
                 ),
               };
               
-              // Change status to editing when removing OCR regions
-              if (state.currentSession.status === 'completed' || state.currentSession.status === 'generated') {
-                updatedSession.status = 'editing';
-              }
+              // Use helper function to transition status if needed
+              updatedSession = get().transitionToEditingIfNeeded(updatedSession);
             } else {
               // Remove from processed_text_regions
               let processedRegions = state.currentSession.processed_text_regions;
@@ -1426,7 +1436,8 @@ export const useAppStore = create<AppStore>()(
             state.undoState.processedCurrentIndex >= 0;
         },
 
-        clearUndoHistory: () => {
+        clearUndoHistory: async (sessionId?: string) => {
+          // Clear frontend undo state
           set((state) => ({
             undoState: {
               ...state.undoState,
@@ -1436,6 +1447,17 @@ export const useAppStore = create<AppStore>()(
               processedCurrentIndex: -1
             }
           }));
+          
+          // Clean up backend history files if sessionId provided
+          if (sessionId) {
+            try {
+              await apiService.cleanupSessionHistory(sessionId);
+              console.log(`Cleaned up history files for session ${sessionId}`);
+            } catch (error) {
+              console.warn(`Failed to cleanup history files for session ${sessionId}:`, error);
+              // Don't throw error - cleaning up files is not critical for functionality
+            }
+          }
         },
 
         clearOcrHistory: () => {
@@ -1540,15 +1562,20 @@ export const useAppStore = create<AppStore>()(
         setHistoricalSessionsError: (error) => set({ historicalSessionsError: error }),
 
         restoreHistoricalSession: async (sessionId: string) => {
-          const { setLoading, setError, setCurrentSession, clearUndoHistory } = get();
+          const { setLoading, setError, setCurrentSession, clearUndoHistory, currentSession } = get();
           
           try {
             setLoading(true);
             setError(null);
             
+            // Clean up history for current session before switching
+            if (currentSession?.id && currentSession.id !== sessionId) {
+              await clearUndoHistory(currentSession.id);
+            }
+            
             const session = await apiService.getSession(sessionId);
             setCurrentSession(session);
-            clearUndoHistory(); // Clear undo history for restored session
+            await clearUndoHistory(); // Clear undo history for new session
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Failed to restore session';
             setError(errorMessage);

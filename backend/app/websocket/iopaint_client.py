@@ -211,8 +211,8 @@ class IOPaintWebSocketClient:
             logger.info(f"Task {task_id} completed via WebSocket - processed image will be handled via HTTP callback")
             
             # Update task info in async processor (minimal update, full handling via HTTP callback)
-            task_info.status = "completed"
-            task_info.stage = "completed"
+            task_info.status = "removed"
+            task_info.stage = "removed"
             task_info.progress = 100.0
             task_info.message = "Processing completed successfully"
             task_info.completed_at = datetime.now()

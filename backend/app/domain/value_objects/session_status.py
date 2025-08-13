@@ -10,7 +10,7 @@ class SessionStatus(Enum):
     DETECTED = "detected"
     EDITING = "editing"
     PROCESSING = "processing"
-    COMPLETED = "completed"
+    REMOVED = "removed"
     GENERATED = "generated"  # Text generated after completion
     ERROR = "error"
     
@@ -21,9 +21,9 @@ class SessionStatus(Enum):
             SessionStatus.DETECTING: {SessionStatus.DETECTED, SessionStatus.ERROR},
             SessionStatus.DETECTED: {SessionStatus.EDITING, SessionStatus.PROCESSING, SessionStatus.ERROR},
             SessionStatus.EDITING: {SessionStatus.PROCESSING, SessionStatus.ERROR},
-            SessionStatus.PROCESSING: {SessionStatus.COMPLETED, SessionStatus.ERROR},
-            SessionStatus.COMPLETED: {SessionStatus.PROCESSING, SessionStatus.GENERATED, SessionStatus.ERROR},  # Allow reprocessing or text generation
-            SessionStatus.GENERATED: {SessionStatus.PROCESSING, SessionStatus.GENERATED, SessionStatus.ERROR},  # Allow reprocessing or regenerating text
+            SessionStatus.PROCESSING: {SessionStatus.REMOVED, SessionStatus.ERROR},
+            SessionStatus.REMOVED: {SessionStatus.PROCESSING, SessionStatus.GENERATED, SessionStatus.ERROR},  # Allow reprocessing or text generation
+            SessionStatus.GENERATED: {SessionStatus.PROCESSING, SessionStatus.REMOVED, SessionStatus.GENERATED, SessionStatus.ERROR},  # Allow reprocessing, reverting to removed, or regenerating text
             SessionStatus.ERROR: {SessionStatus.DETECTING, SessionStatus.PROCESSING}  # Can retry
         }
         

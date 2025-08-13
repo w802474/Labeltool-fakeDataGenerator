@@ -25,6 +25,7 @@ class TextRegion:
     is_size_modified: bool = False  # Whether the user has modified the box size
     text_category: Optional[str] = None  # Text classification category
     category_config: Optional[Dict[str, Any]] = None  # Category color and display config
+    original_region_id: Optional[str] = None  # For processed regions: ID of the corresponding OCR region
     
     def __post_init__(self):
         """Validate text region properties."""

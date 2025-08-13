@@ -262,6 +262,10 @@ class ApiService {
     return response.data.session;
   }
 
+  async cleanupSessionHistory(sessionId: string): Promise<void> {
+    await this.client.post(`/sessions/${sessionId}/cleanup-history`);
+  }
+
   // Get system info
   async getSystemInfo(): Promise<any> {
     const response = await this.client.get('/system/info');

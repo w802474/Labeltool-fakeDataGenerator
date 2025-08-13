@@ -46,7 +46,7 @@ class UpdateTextRegionsUseCase:
         Raises:
             ValueError: If session state or region data is invalid
         """
-        if session.status not in {SessionStatus.DETECTED, SessionStatus.EDITING, SessionStatus.COMPLETED, SessionStatus.GENERATED}:
+        if session.status not in {SessionStatus.DETECTED, SessionStatus.EDITING, SessionStatus.REMOVED, SessionStatus.GENERATED}:
             raise ValueError(f"Cannot update regions in status: {session.status.value}")
         
         logger.info(f"Updating {len(updated_regions)} text regions for session {session.id} (mode: {update_mode})")
@@ -66,7 +66,7 @@ class UpdateTextRegionsUseCase:
             # Determine which regions to update based on mode and session status
             if update_mode == "auto":
                 # Auto-detect: if session is completed/generated, prefer updating processed regions
-                if session.status in {SessionStatus.COMPLETED, SessionStatus.GENERATED}:
+                if session.status in {SessionStatus.REMOVED, SessionStatus.GENERATED}:
                     update_mode = "processed"
                 else:
                     update_mode = "ocr"
@@ -112,15 +112,13 @@ class UpdateTextRegionsUseCase:
             if self.db_session:
                 try:
                     await self.session_repository.update(session)
-                    # Only sync OCR regions to database to avoid ID conflicts
-                    # Processed regions are kept in memory only as they share IDs with OCR regions
-                    if update_mode == "ocr" and session.text_regions:
+                    # Update regions in database based on update mode
+                    regions_to_sync = session.processed_text_regions if update_mode == "processed" else session.text_regions
+                    if regions_to_sync:
                         await self.region_repository.update_regions_for_session(
-                            session.id, session.text_regions, "ocr"
+                            session.id, regions_to_sync, update_mode
                         )
-                        logger.info(f"OCR regions synchronized to database for session {session.id}")
-                    elif update_mode == "processed":
-                        logger.info(f"Processed regions kept in memory only for session {session.id} (no database sync)")
+                    logger.info(f"Session {session.id} synchronized to database")
                 except Exception as db_error:
                     logger.error(f"Failed to sync session to database: {db_error}")
                     # Don't fail the main operation for database errors

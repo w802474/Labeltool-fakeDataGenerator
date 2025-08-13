@@ -17,7 +17,8 @@ class Settings(BaseSettings):
     # File Upload Configuration
     max_file_size: int = Field(default=10485760, env="MAX_FILE_SIZE")  # 10MB
     upload_dir: str = Field(default="uploads", env="UPLOAD_DIR")
-    processed_dir: str = Field(default="processed", env="PROCESSED_DIR")
+    removal_dir: str = Field(default="removal", env="REMOVAL_DIR")
+    generated_dir: str = Field(default="generated", env="GENERATED_DIR")
     
     
     # PaddleOCR Configuration
@@ -61,6 +62,24 @@ class Settings(BaseSettings):
         default=["image/jpeg", "image/png", "image/webp"],
         env="ALLOWED_MIME_TYPES"
     )
+    
+    # Database Configuration
+    database_url: str = Field(
+        default="mysql+aiomysql://labeltool_user:labeltool_pass_2025@localhost:3306/labeltool_db?charset=utf8mb4",
+        env="DATABASE_URL"
+    )
+    database_echo: bool = Field(default=False, env="DATABASE_ECHO")
+    mysql_host: str = Field(default="localhost", env="MYSQL_HOST")
+    mysql_port: int = Field(default=3306, env="MYSQL_PORT")
+    mysql_user: str = Field(default="labeltool_user", env="MYSQL_USER")
+    mysql_password: str = Field(default="labeltool_pass_2025", env="MYSQL_PASSWORD")
+    mysql_database: str = Field(default="labeltool_db", env="MYSQL_DATABASE")
+    
+    # Database Connection Pool Configuration
+    db_pool_size: int = Field(default=5, env="DB_POOL_SIZE")
+    db_max_overflow: int = Field(default=10, env="DB_MAX_OVERFLOW")
+    db_pool_timeout: int = Field(default=30, env="DB_POOL_TIMEOUT")
+    db_pool_recycle: int = Field(default=3600, env="DB_POOL_RECYCLE")  # 1 hour
     
     @field_validator("paddleocr_device")
     @classmethod
@@ -143,7 +162,8 @@ class Settings(BaseSettings):
         """Create necessary directories if they don't exist."""
         directories = [
             self.upload_dir, 
-            self.processed_dir
+            self.removal_dir,
+            self.generated_dir
         ]
         for directory in directories:
             os.makedirs(directory, exist_ok=True)

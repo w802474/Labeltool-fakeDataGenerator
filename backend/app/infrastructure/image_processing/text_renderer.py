@@ -431,7 +431,8 @@ class TextRenderer:
         self, 
         image_path: str, 
         text_regions_with_text: List[Tuple[TextRegion, str, Optional[FontProperties]]], 
-        output_dir: str = "processed"
+        output_dir: str = "processed",
+        session_id: Optional[str] = None
     ) -> str:
         """
         Render multiple texts to their respective regions in an image.
@@ -491,7 +492,24 @@ class TextRenderer:
             
             # Generate output path
             input_filename = Path(image_path).stem
-            output_filename = f"{input_filename}_texts_{uuid.uuid4().hex[:8]}.png"
+            
+            # For generated directory, use session_id parameter with timestamp
+            if output_dir == "generated":
+                if not session_id:
+                    raise ValueError("session_id is required for generated directory")
+                
+                # Add timestamp to ensure unique filename for each generation
+                import time
+                timestamp = int(time.time() * 1000)  # milliseconds timestamp
+                output_filename = f"generated_{session_id}_{timestamp}.png"
+                
+                # Note: Old files are preserved to support undo functionality
+                # Files will be cleaned up when undo history is cleared
+                
+            else:
+                # For other directories, keep the original naming scheme
+                output_filename = f"{input_filename}_texts_{uuid.uuid4().hex[:8]}.png"
+            
             os.makedirs(output_dir, exist_ok=True)
             output_path = os.path.join(output_dir, output_filename)
             

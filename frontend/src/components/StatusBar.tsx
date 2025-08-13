@@ -45,9 +45,9 @@ export const StatusBar: React.FC = () => {
           icon: <Loader2 className="h-4 w-4 text-orange-500 animate-spin" />,
           color: 'text-orange-600',
         };
-      case 'completed':
+      case 'removed':
         return {
-          status: 'Processing complete',
+          status: 'Text removed',
           icon: <CheckCircle2 className="h-4 w-4 text-green-500" />,
           color: 'text-green-600',
         };

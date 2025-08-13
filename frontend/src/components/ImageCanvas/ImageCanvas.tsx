@@ -138,26 +138,31 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
     const displayMode = processingState.displayMode;
     const hasProcessedImage = !!currentSession.processed_image;
     
-    // If display mode is 'processed' and we have a processed image, show it
+    // If display mode is 'processed' and we have a processed image, show appropriate result
     if (displayMode === 'processed' && hasProcessedImage) {
-      // Add cache-busting parameter using the session's updated timestamp
+      // Determine the correct endpoint based on session status
+      let endpoint = 'result'; // Legacy fallback
+      
+      if (currentSession.status === 'generated') {
+        // For text generation sessions, use the generated endpoint
+        endpoint = 'generated';
+      } else if (currentSession.status === 'removed') {
+        // For text removal sessions, use the removal endpoint
+        endpoint = 'removal';
+      }
+      
+      // Add timestamp for cache busting
       const timestamp = new Date(currentSession.updated_at).getTime();
-      return `/api/v1/sessions/${sessionId}/result?t=${timestamp}`;
+      const finalUrl = `/api/v1/sessions/${sessionId}/${endpoint}?t=${timestamp}`;
+      
+      return finalUrl;
     }
     
     // Otherwise show original image
     return `/api/v1/sessions/${sessionId}/image`;
-  }, [
-    sessionId, 
-    currentSession?.processed_image, 
-    currentSession?.updated_at,
-    (currentSession as any)?._forceRefresh, // Force URL refresh when this changes
-    processingState.displayMode
-  ]);
+  }, [sessionId, currentSession?.processed_image, currentSession?.status, currentSession?.updated_at, processingState.displayMode]);
   
-  const [image] = useImage(imageUrl);
-  
-  
+  const [image] = useImage(imageUrl, 'anonymous');
   
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<Point | null>(null);
@@ -1239,14 +1244,17 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({ className }) => {
           {/* Main content layer */}
           <Layer>
             {/* Main image */}
-            <KonvaImage
-              image={image}
-              x={offset.x}
-              y={offset.y}
-              scaleX={scale}
-              scaleY={scale}
-              listening={false}
-            />
+            {image && (
+              <KonvaImage
+                key={imageUrl}
+                image={image}
+                x={offset.x}
+                y={offset.y}
+                scaleX={scale}
+                scaleY={scale}
+                listening={false}
+              />
+            )}
 
             {/* Text regions - show based on display mode and overlay settings */}
             {(() => {

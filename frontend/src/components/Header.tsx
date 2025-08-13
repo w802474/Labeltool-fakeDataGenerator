@@ -19,7 +19,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ showConfirm, showToast, showErrorToast }) => {
   const navigate = useNavigate();
-  const { settings, setDarkMode, currentSession, updateTextRegions, getCurrentDisplayRegions } = useAppStore();
+  const { settings, setDarkMode, currentSession, updateTextRegions, getCurrentDisplayRegions, clearUndoHistory } = useAppStore();
   const [apiStatus, setApiStatus] = useState<'checking' | 'ready' | 'error'>('checking');
 
   const toggleDarkMode = () => {
@@ -40,6 +40,9 @@ export const Header: React.FC<HeaderProps> = ({ showConfirm, showToast, showErro
         // Save ALL current regions (including deletions, additions, modifications)
         const allCurrentRegions = getCurrentDisplayRegions();
         await updateTextRegions(allCurrentRegions, 'auto', false);
+        
+        // Clear undo history when leaving current session
+        await clearUndoHistory(currentSession.id);
         
         // Navigate to home page
         navigate('/');

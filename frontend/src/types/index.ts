@@ -66,7 +66,7 @@ export type SessionStatus =
   | 'detected' 
   | 'editing'
   | 'processing'
-  | 'completed'
+  | 'removed'
   | 'generated'
   | 'error';
 

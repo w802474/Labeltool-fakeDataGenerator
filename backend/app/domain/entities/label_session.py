@@ -115,12 +115,12 @@ class LabelSession:
         return [region for region in self.text_regions if region.is_user_modified]
     
     def set_processed_image(self, processed_image: ImageFile) -> None:
-        """Set the processed image and transition to completed status."""
+        """Set the processed image and transition to removed status."""
         if self.status != SessionStatus.PROCESSING:
             raise ValueError(f"Cannot set processed image in status: {self.status.value}")
         
         self.processed_image = processed_image
-        self.transition_to_status(SessionStatus.COMPLETED)
+        self.transition_to_status(SessionStatus.REMOVED)
     
     def clear_selections(self) -> None:
         """Clear all text region selections."""
@@ -131,7 +131,7 @@ class LabelSession:
     def is_ready_for_processing(self) -> bool:
         """Check if the session is ready for text removal processing."""
         return (
-            self.status in {SessionStatus.DETECTED, SessionStatus.EDITING, SessionStatus.COMPLETED, SessionStatus.GENERATED} and
+            self.status in {SessionStatus.DETECTED, SessionStatus.EDITING, SessionStatus.REMOVED, SessionStatus.GENERATED} and
             len(self.text_regions) > 0
         )
     
@@ -151,7 +151,15 @@ class LabelSession:
         """Initialize processed_text_regions as copies of OCR regions with preserved classification."""
         if self.processed_text_regions is None or force_reinitialize:
             import copy
+            import uuid
             self.processed_text_regions = copy.deepcopy(self.text_regions)
+            
+            # Generate new UUIDs for processed regions to avoid database conflicts
+            for region in self.processed_text_regions:
+                # Save the original OCR region ID before generating new UUID
+                original_id = region.id
+                region.id = str(uuid.uuid4())
+                region.original_region_id = original_id
             
             # Prepare regions for processed mode while preserving classification
             for region in self.processed_text_regions:
@@ -175,7 +183,7 @@ class LabelSession:
     
     def update_processed_text_region(self, region_id: str, updated_region: TextRegion) -> None:
         """Update a processed text region (for processed image display)."""
-        if self.status not in {SessionStatus.COMPLETED, SessionStatus.GENERATED}:
+        if self.status not in {SessionStatus.REMOVED, SessionStatus.GENERATED}:
             raise ValueError(f"Cannot update processed regions in status: {self.status.value}")
         
         # Initialize processed regions if not exists

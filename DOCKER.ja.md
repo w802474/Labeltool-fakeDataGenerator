@@ -140,7 +140,8 @@ docker-compose restart frontend
 
 ### バックエンドサービスボリューム
 - `backend_uploads`: アップロードされた画像ファイル
-- `backend_processed`: 処理済み画像ファイル
+- `backend_removal`: テキスト除去処理済み画像ファイル
+- `backend_generated`: テキスト生成結果画像ファイル
 - `backend_exports`: エクスポートファイル
 - `backend_logs`: アプリケーションログ
 - `paddlex_cache`: PaddleOCRモデルキャッシュ
@@ -175,7 +176,8 @@ docker volume prune
 ### ファイル処理設定
 - `MAX_FILE_SIZE`: 最大ファイルサイズ (デフォルト: 50MB)
 - `UPLOAD_DIR`: アップロードディレクトリ (デフォルト: uploads)
-- `PROCESSED_DIR`: 処理済みファイルディレクトリ (デフォルト: processed)
+- `REMOVAL_DIR`: テキスト除去結果ディレクトリ (デフォルト: removal)
+- `GENERATED_DIR`: テキスト生成結果ディレクトリ (デフォルト: generated)
 
 ### OCR設定
 - `PADDLEOCR_DEVICE`: デバイスタイプ (cpu/cuda, デフォルト: cpu)
@@ -226,7 +228,7 @@ curl http://localhost:8081/api/v1/health
 ### 5. 権限問題
 ```bash
 # ディレクトリ権限を正しく設定
-sudo chown -R $USER:$USER uploads processed exports logs
+sudo chown -R $USER:$USER uploads removal generated exports logs
 ```
 
 ### 6. ネットワーク接続問題
@@ -343,9 +345,10 @@ docker image prune
 
 ### データバックアップ
 ```bash
-# バックエンドアップロードと処理済みファイルのバックアップ
+# バックエンドアップロードと結果ファイルのバックアップ
 docker run --rm -v labeltool-fakedatagenerator_backend_uploads:/data -v $(pwd):/backup alpine tar czf /backup/uploads-backup.tar.gz -C /data .
-docker run --rm -v labeltool-fakedatagenerator_backend_processed:/data -v $(pwd):/backup alpine tar czf /backup/processed-backup.tar.gz -C /data .
+docker run --rm -v labeltool-fakedatagenerator_backend_removal:/data -v $(pwd):/backup alpine tar czf /backup/removal-backup.tar.gz -C /data .
+docker run --rm -v labeltool-fakedatagenerator_backend_generated:/data -v $(pwd):/backup alpine tar czf /backup/generated-backup.tar.gz -C /data .
 
 # モデルキャッシュのバックアップ（高速起動のために重要）
 docker run --rm -v labeltool-fakedatagenerator_huggingface_cache:/data -v $(pwd):/backup alpine tar czf /backup/iopaint-models-backup.tar.gz -C /data .

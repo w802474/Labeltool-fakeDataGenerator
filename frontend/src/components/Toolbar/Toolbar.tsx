@@ -86,7 +86,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const hasProcessedImage = currentSession.processed_image !== null && currentSession.processed_image !== undefined;
   
   // Can download only when in processed mode and have processed image
-  const canDownload = (currentSession.status === 'completed' || currentSession.status === 'generated') && 
+  const canDownload = (currentSession.status === 'removed' || currentSession.status === 'generated') && 
                       processingState.displayMode === 'processed' && 
                       hasProcessedImage;
   
@@ -137,15 +137,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     
     try {
       const regionsToSave = getCurrentDisplayRegions();
-      console.log('Saving regions for session:', currentSession.id);
       
       // Save regions to backend with CSV export
       await updateTextRegions(regionsToSave, 'auto', true); // Explicitly export CSV
-      console.log('Regions saved successfully');
       
       // Automatically download the CSV file
       await downloadRegionsCSV();
-      console.log('CSV downloaded successfully');
       
       // Show success toast
       showToast?.(`Successfully saved and downloaded ${regionsToSave.length} text regions as CSV file.`);

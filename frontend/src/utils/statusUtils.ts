@@ -14,8 +14,8 @@ export const getStatusText = (status: string): string => {
       return 'Editing';
     case 'processing':
       return 'Processing';
-    case 'completed':
-      return 'Processing Complete';
+    case 'removed':
+      return 'Text Removed';
     case 'generated':
       return 'Text Generated';
     case 'error':
@@ -28,7 +28,7 @@ export const getStatusText = (status: string): string => {
 
 export const getStatusColor = (status: string): string => {
   switch (status.toLowerCase()) {
-    case 'completed':
+    case 'removed':
       return 'text-green-600 bg-green-100 dark:text-green-400 dark:bg-green-900/30';
     case 'generated':
       return 'text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/30';
@@ -50,7 +50,7 @@ export const getStatusColor = (status: string): string => {
 };
 
 export const isStatusCompleted = (status: string): boolean => {
-  return ['completed', 'generated'].includes(status.toLowerCase());
+  return ['removed', 'generated'].includes(status.toLowerCase());
 };
 
 export const isStatusProcessing = (status: string): boolean => {

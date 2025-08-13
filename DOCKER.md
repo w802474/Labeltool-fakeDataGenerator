@@ -140,7 +140,8 @@ The project uses Docker volumes to persist important data:
 
 ### Backend Service Volumes
 - `backend_uploads`: Uploaded image files
-- `backend_processed`: Processed image files
+- `backend_removal`: Text removal processed image files
+- `backend_generated`: Text generation result image files
 - `backend_exports`: Exported files
 - `backend_logs`: Application logs
 - `paddlex_cache`: PaddleOCR model cache
@@ -175,7 +176,8 @@ Main environment variables:
 ### File Processing Configuration
 - `MAX_FILE_SIZE`: Maximum file size (default: 50MB)
 - `UPLOAD_DIR`: Upload directory (default: uploads)
-- `PROCESSED_DIR`: Processed files directory (default: processed)
+- `REMOVAL_DIR`: Text removal results directory (default: removal)
+- `GENERATED_DIR`: Text generation results directory (default: generated)
 
 ### OCR Configuration
 - `PADDLEOCR_DEVICE`: Device type (cpu/cuda, default: cpu)
@@ -226,7 +228,7 @@ curl http://localhost:8081/api/v1/health
 ### 5. Permission Issues
 ```bash
 # Ensure correct directory permissions
-sudo chown -R $USER:$USER uploads processed exports logs
+sudo chown -R $USER:$USER uploads removal generated exports logs
 ```
 
 ### 6. Network Connection Issues
@@ -343,9 +345,10 @@ docker image prune
 
 ### Backup data
 ```bash
-# Backup backend uploads and processed files
+# Backup backend uploads and result files
 docker run --rm -v labeltool-fakedatagenerator_backend_uploads:/data -v $(pwd):/backup alpine tar czf /backup/uploads-backup.tar.gz -C /data .
-docker run --rm -v labeltool-fakedatagenerator_backend_processed:/data -v $(pwd):/backup alpine tar czf /backup/processed-backup.tar.gz -C /data .
+docker run --rm -v labeltool-fakedatagenerator_backend_removal:/data -v $(pwd):/backup alpine tar czf /backup/removal-backup.tar.gz -C /data .
+docker run --rm -v labeltool-fakedatagenerator_backend_generated:/data -v $(pwd):/backup alpine tar czf /backup/generated-backup.tar.gz -C /data .
 
 # Backup model caches (important for faster startup)
 docker run --rm -v labeltool-fakedatagenerator_huggingface_cache:/data -v $(pwd):/backup alpine tar czf /backup/iopaint-models-backup.tar.gz -C /data .

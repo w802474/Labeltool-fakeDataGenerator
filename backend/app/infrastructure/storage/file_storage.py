@@ -29,25 +29,28 @@ class FileStorageService:
     # Maximum file size (10MB as per PRP)
     MAX_FILE_SIZE = 10 * 1024 * 1024
     
-    def __init__(self, upload_dir: str = "uploads", processed_dir: str = "processed", exports_dir: str = "exports"):
+    def __init__(self, upload_dir: str = "uploads", removal_dir: str = "removal", generated_dir: str = "generated", exports_dir: str = "exports"):
         """
         Initialize file storage service.
         
         Args:
             upload_dir: Directory for uploaded files
-            processed_dir: Directory for processed files
+            removal_dir: Directory for text removal processed images
+            generated_dir: Directory for text generation result images
             exports_dir: Directory for exported data files
         """
         self.upload_dir = Path(upload_dir)
-        self.processed_dir = Path(processed_dir)
+        self.removal_dir = Path(removal_dir)
+        self.generated_dir = Path(generated_dir)
         self.exports_dir = Path(exports_dir)
         
         # Create directories if they don't exist
         self.upload_dir.mkdir(parents=True, exist_ok=True)
-        self.processed_dir.mkdir(parents=True, exist_ok=True)
+        self.removal_dir.mkdir(parents=True, exist_ok=True)
+        self.generated_dir.mkdir(parents=True, exist_ok=True)
         self.exports_dir.mkdir(parents=True, exist_ok=True)
         
-        logger.info(f"File storage initialized - Upload: {self.upload_dir}, Processed: {self.processed_dir}, Exports: {self.exports_dir}")
+        logger.info(f"File storage initialized - Upload: {self.upload_dir}, Removal: {self.removal_dir}, Generated: {self.generated_dir}, Exports: {self.exports_dir}")
     
     async def save_uploaded_image(self, file_data: bytes, filename: str) -> ImageFile:
         """
@@ -321,7 +324,7 @@ class FileStorageService:
         cutoff_time = current_time - (older_than_hours * 3600)
         cleaned_count = 0
         
-        for directory in [self.upload_dir, self.processed_dir]:
+        for directory in [self.upload_dir, self.removal_dir, self.generated_dir]:
             if directory.exists():
                 for file_path in directory.rglob('*'):
                     if file_path.is_file():
@@ -365,7 +368,8 @@ class FileStorageService:
         
         return {
             'upload_dir': get_dir_info(self.upload_dir),
-            'processed_dir': get_dir_info(self.processed_dir),
+            'removal_dir': get_dir_info(self.removal_dir),
+            'generated_dir': get_dir_info(self.generated_dir),
             'supported_types': list(self.SUPPORTED_MIME_TYPES),
             'max_file_size': self.MAX_FILE_SIZE
         }
@@ -385,7 +389,8 @@ class FileStorageService:
             if path.exists() and path.is_file():
                 # Security check: ensure file is within our managed directories
                 if not (self._is_path_within_directory(path, self.upload_dir) or 
-                       self._is_path_within_directory(path, self.processed_dir)):
+                       self._is_path_within_directory(path, self.removal_dir) or
+                       self._is_path_within_directory(path, self.generated_dir)):
                     logger.warning(f"Attempted to delete file outside managed directories: {file_path}")
                     return False
                 

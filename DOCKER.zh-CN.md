@@ -140,7 +140,8 @@ docker-compose restart frontend
 
 ### 后端服务卷
 - `backend_uploads`: 上传的图像文件
-- `backend_processed`: 处理后的图像文件
+- `backend_removal`: 文本移除处理后的图像文件
+- `backend_generated`: 文本生成结果图像文件
 - `backend_exports`: 导出的文件
 - `backend_logs`: 应用日志
 - `paddlex_cache`: PaddleOCR模型缓存
@@ -175,7 +176,8 @@ docker volume prune
 ### 文件处理配置
 - `MAX_FILE_SIZE`: 最大文件大小 (默认: 50MB)
 - `UPLOAD_DIR`: 上传目录 (默认: uploads)
-- `PROCESSED_DIR`: 处理后文件目录 (默认: processed)
+- `REMOVAL_DIR`: 文本移除结果目录 (默认: removal)
+- `GENERATED_DIR`: 文本生成结果目录 (默认: generated)
 
 ### OCR 配置
 - `PADDLEOCR_DEVICE`: 设备类型 (cpu/cuda, 默认: cpu)
@@ -226,7 +228,7 @@ curl http://localhost:8081/api/v1/health
 ### 5. 权限问题
 ```bash
 # 确保目录权限正确
-sudo chown -R $USER:$USER uploads processed exports logs
+sudo chown -R $USER:$USER uploads removal generated exports logs
 ```
 
 ### 6. 网络连接问题
@@ -343,9 +345,10 @@ docker image prune
 
 ### 备份数据
 ```bash
-# 备份后端上传和处理文件
+# 备份后端上传和结果文件
 docker run --rm -v labeltool-fakedatagenerator_backend_uploads:/data -v $(pwd):/backup alpine tar czf /backup/uploads-backup.tar.gz -C /data .
-docker run --rm -v labeltool-fakedatagenerator_backend_processed:/data -v $(pwd):/backup alpine tar czf /backup/processed-backup.tar.gz -C /data .
+docker run --rm -v labeltool-fakedatagenerator_backend_removal:/data -v $(pwd):/backup alpine tar czf /backup/removal-backup.tar.gz -C /data .
+docker run --rm -v labeltool-fakedatagenerator_backend_generated:/data -v $(pwd):/backup alpine tar czf /backup/generated-backup.tar.gz -C /data .
 
 # 备份模型缓存（对快速启动很重要）
 docker run --rm -v labeltool-fakedatagenerator_huggingface_cache:/data -v $(pwd):/backup alpine tar czf /backup/iopaint-models-backup.tar.gz -C /data .

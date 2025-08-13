@@ -2,32 +2,31 @@
 import os
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.pool import StaticPool
 from loguru import logger
 
 from app.infrastructure.database.models import Base
+from app.config.settings import settings
 
 
 class DatabaseConfig:
     """Database configuration manager."""
     
     def __init__(self):
-        # Get database URL from environment or use default SQLite path
-        # Note: SQLite URLs with absolute paths need 4 slashes: sqlite+aiosqlite:////absolute/path
-        self.database_url = os.getenv(
-            "DATABASE_URL", 
-            "sqlite+aiosqlite:////app/data/labeltool.db"
-        )
+        # Get database URL from settings
+        self.database_url = settings.database_url
         
-        # SQLite-specific engine configuration
-        connect_args = {"check_same_thread": False} if "sqlite" in self.database_url else {}
+        # MySQL connection arguments with proper charset and timezone
+        connect_args = {
+            "charset": "utf8mb4",
+            "use_unicode": True,
+            "autocommit": False,
+        }
         
-        # Create async engine
+        # Create async engine for MySQL
         self.engine = create_async_engine(
             self.database_url,
-            echo=os.getenv("DATABASE_ECHO", "false").lower() == "true",  # Enable SQL logging in debug mode
+            echo=settings.database_echo,
             connect_args=connect_args,
-            poolclass=StaticPool if "sqlite" in self.database_url else None,
         )
         
         # Create session factory
@@ -42,11 +41,15 @@ class DatabaseConfig:
     async def create_tables(self):
         """Create all database tables."""
         try:
+            logger.info("Creating database connection...")
             async with self.engine.begin() as conn:
+                logger.info("Connected to database, creating tables...")
                 await conn.run_sync(Base.metadata.create_all)
             logger.info("Database tables created successfully")
         except Exception as e:
             logger.error(f"Failed to create database tables: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             raise
     
     async def drop_tables(self):
@@ -98,10 +101,7 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_database():
-    """Initialize database on application startup."""
-    # Ensure data directory exists
-    os.makedirs("/app/data", exist_ok=True)
-    
+    """Initialize database on application startup."""    
     db_config = get_database_config()
     await db_config.create_tables()
     logger.info("Database initialization completed")

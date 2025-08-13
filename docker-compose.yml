@@ -1,4 +1,30 @@
 services:
+  mysql:
+    image: mysql:8.0
+    container_name: labeltool-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=labeltool_root_2025
+      - MYSQL_DATABASE=labeltool_db
+      - MYSQL_USER=labeltool_user
+      - MYSQL_PASSWORD=labeltool_pass_2025
+      - MYSQL_CHARSET=utf8mb4
+      - MYSQL_COLLATION=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/scripts/mysql_init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - labeltool-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "labeltool_user", "-plabeltool_pass_2025"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
   backend:
     build:
       context: ./backend
@@ -13,22 +39,31 @@ services:
       - API_RELOAD=false
       - LOG_LEVEL=INFO
       - UPLOAD_DIR=/app/uploads
-      - PROCESSED_DIR=/app/processed
+      - REMOVAL_DIR=/app/removal
+      - GENERATED_DIR=/app/generated
       - MAX_FILE_SIZE=52428800  # 50MB
       - PADDLEOCR_DEVICE=cpu
       - PADDLEOCR_LANG=japan
       - IOPAINT_PORT=8081
       - CORS_ORIGINS="http://localhost:3000,http://localhost:5173,http://frontend"
-      - DATABASE_URL=sqlite+aiosqlite:////app/data/labeltool.db
+      - DATABASE_URL=mysql+aiomysql://labeltool_user:labeltool_pass_2025@mysql:3306/labeltool_db?charset=utf8mb4
       - DATABASE_ECHO=false
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=labeltool_user
+      - MYSQL_PASSWORD=labeltool_pass_2025
+      - MYSQL_DATABASE=labeltool_db
     volumes:
-      - backend_data:/app/data  # Persistent data directory (database + files)
+      - backend_data:/app/data  # Persistent data directory (database)
       - backend_uploads:/app/uploads
-      - backend_processed:/app/processed
+      - backend_removal:/app/removal
+      - backend_generated:/app/generated
       - backend_exports:/app/exports
       - backend_logs:/app/logs
       - paddlex_cache:/root/.paddlex
     depends_on:
+      mysql:
+        condition: service_healthy
       iopaint-service:
         condition: service_healthy
     networks:
@@ -90,15 +125,15 @@ services:
       start_period: 60s
 
 volumes:
+  mysql_data:
+    driver: local
   backend_data:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./data  # Bind mount to local ./data directory for easy access
   backend_uploads:
     driver: local
-  backend_processed:
+  backend_removal:
+    driver: local
+  backend_generated:
     driver: local
   backend_exports:
     driver: local

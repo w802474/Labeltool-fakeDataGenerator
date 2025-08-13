@@ -55,7 +55,7 @@ class ProcessTextRemovalAsyncUseCase:
         issues = []
         
         # Check session status
-        if session.status not in [SessionStatus.DETECTED, SessionStatus.EDITING, SessionStatus.COMPLETED]:
+        if session.status not in [SessionStatus.DETECTED, SessionStatus.EDITING, SessionStatus.REMOVED]:
             issues.append(f"Session status {session.status.value} not ready for processing")
         
         # Check if image exists
@@ -224,7 +224,7 @@ class ProcessTextRemovalAsyncUseCase:
         
         while True:
             # Check if task completed
-            if task_info.status in ["completed", "failed", "cancelled"]:
+            if task_info.status in ["removed", "failed", "cancelled"]:
                 break
             
             # Check timeout
@@ -274,7 +274,7 @@ class ProcessTextRemovalAsyncUseCase:
         
         task_info = self._active_tasks[task_id]
         
-        if task_info.status in ["completed", "failed", "cancelled"]:
+        if task_info.status in ["removed", "failed", "cancelled"]:
             return False
         
         try:
@@ -302,7 +302,7 @@ class ProcessTextRemovalAsyncUseCase:
         to_remove = []
         
         for task_id, task_info in self._active_tasks.items():
-            if task_info.status in ["completed", "failed", "cancelled"] and task_info.completed_at:
+            if task_info.status in ["removed", "failed", "cancelled"] and task_info.completed_at:
                 age_hours = (now - task_info.completed_at).total_seconds() / 3600
                 if age_hours > max_age_hours:
                     to_remove.append(task_id)

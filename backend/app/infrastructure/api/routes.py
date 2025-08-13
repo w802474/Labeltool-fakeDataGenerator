@@ -99,8 +99,9 @@ def get_inpainting_service() -> IOPaintClient:
 def get_file_service() -> FileStorageService:
     """Dependency to get file storage service instance."""
     upload_dir = os.getenv("UPLOAD_DIR", "uploads")
-    processed_dir = os.getenv("PROCESSED_DIR", "processed")
-    return FileStorageService(upload_dir=upload_dir, processed_dir=processed_dir)
+    removal_dir = os.getenv("REMOVAL_DIR", "removal")
+    generated_dir = os.getenv("GENERATED_DIR", "generated")
+    return FileStorageService(upload_dir=upload_dir, removal_dir=removal_dir, generated_dir=generated_dir)
 
 
 def get_detect_use_case(
@@ -429,48 +430,154 @@ async def get_original_image(session_id: str, db_session: AsyncSession = Depends
 
 
 @router.get(
-    "/sessions/{session_id}/result",
+    "/sessions/{session_id}/removal",
     response_class=FileResponse,
-    summary="Download processed image",
-    description="Download the processed image with text removed"
+    summary="Get text removal result image",
+    description="Get the image with text removed after processing"
 )
-async def download_result(session_id: str, db_session: AsyncSession = Depends(get_db_session)):
-    """Download the processed image result."""
+async def get_removal_result(session_id: str, db_session: AsyncSession = Depends(get_db_session)):
+    """Get the text removal result image."""
     try:
         session = await get_session_or_404(session_id, db_session)
         
-        if session.status not in [SessionStatus.COMPLETED, SessionStatus.GENERATED]:
+        if session.status not in [SessionStatus.REMOVED, SessionStatus.GENERATED]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Session processing not completed (status: {session.status.value})"
             )
         
-        if not session.processed_image:
+        # Check if session has a processed_image and use that specific file
+        if session.processed_image and session.processed_image.path:
+            removal_path = session.processed_image.path
+            logger.info(f"Using session processed_image path: {removal_path}")
+        else:
+            # Fallback: look for files in removal directory and use latest
+            # Support both old format (removal_{session_id}.png) and new format (removal_{session_id}_{timestamp}.png)
+            import glob
+            removal_pattern_new = os.path.join(settings.removal_dir, f"removal_{session_id}_*.png")
+            removal_pattern_old = os.path.join(settings.removal_dir, f"removal_{session_id}.png")
+            removal_files = glob.glob(removal_pattern_new) + glob.glob(removal_pattern_old)
+            
+            if not removal_files:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Text removal image not found"
+                )
+            
+            # Sort by modification time to get the latest file
+            removal_files.sort(key=os.path.getmtime, reverse=True)
+            removal_path = removal_files[0]
+            logger.info(f"Using latest removal file: {removal_path}")
+        if not os.path.exists(removal_path):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Processed image not found"
+                detail="Text removal image file not found on disk"
             )
         
-        if not os.path.exists(session.processed_image.path):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Processed image file not found on disk"
-            )
+        # Determine MIME type from file extension
+        mime_type = "image/png"
+        if removal_path.lower().endswith('.jpg') or removal_path.lower().endswith('.jpeg'):
+            mime_type = "image/jpeg"
+        elif removal_path.lower().endswith('.webp'):
+            mime_type = "image/webp"
         
         return FileResponse(
-            path=session.processed_image.path,
-            filename=session.processed_image.filename,
-            media_type=session.processed_image.mime_type
+            path=removal_path,
+            media_type=mime_type
         )
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to download result for session {session_id}: {e}")
+        logger.error(f"Failed to get removal result for session {session_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to download result: {str(e)}"
+            detail=f"Failed to get removal result: {str(e)}"
         )
+
+
+@router.get(
+    "/sessions/{session_id}/generated",
+    response_class=FileResponse,
+    summary="Get text generation result image",
+    description="Get the image with generated text after text generation"
+)
+async def get_generated_result(session_id: str, db_session: AsyncSession = Depends(get_db_session)):
+    """Get the text generation result image."""
+    try:
+        session = await get_session_or_404(session_id, db_session)
+        
+        if session.status != SessionStatus.GENERATED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Session text generation not completed (status: {session.status.value})"
+            )
+        
+        # Check if session has a processed_image and use that specific file
+        if session.processed_image and session.processed_image.path:
+            generated_path = session.processed_image.path
+            logger.info(f"Using session processed_image path: {generated_path}")
+        else:
+            # Fallback: look for files in generated directory and use latest
+            import glob
+            generated_pattern = f"generated/generated_{session_id}_*.png"
+            generated_files = glob.glob(generated_pattern)
+            
+            if not generated_files:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Text generation image not found"
+                )
+            
+            # Sort by modification time to get the latest file
+            generated_files.sort(key=os.path.getmtime, reverse=True)
+            generated_path = generated_files[0]
+            logger.info(f"Using latest generated file: {generated_path}")
+        if not os.path.exists(generated_path):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Text generation image file not found on disk"
+            )
+        
+        # Determine MIME type from file extension
+        mime_type = "image/png"
+        if generated_path.lower().endswith('.jpg') or generated_path.lower().endswith('.jpeg'):
+            mime_type = "image/jpeg"
+        elif generated_path.lower().endswith('.webp'):
+            mime_type = "image/webp"
+        
+        return FileResponse(
+            path=generated_path,
+            media_type=mime_type
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get generated result for session {session_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get generated result: {str(e)}"
+        )
+
+
+@router.get(
+    "/sessions/{session_id}/result",
+    response_class=FileResponse,
+    summary="Download processed image",
+    description="Download the processed image with text removed (legacy endpoint, now redirects to removal)"
+)
+async def download_result(session_id: str, db_session: AsyncSession = Depends(get_db_session)):
+    """Download the processed image result (legacy endpoint)."""
+    # Redirect to the appropriate endpoint based on session status
+    session = await get_session_or_404(session_id, db_session)
+    
+    if session.status == SessionStatus.GENERATED:
+        # Return generated image for text generation sessions
+        return await get_generated_result(session_id, db_session)
+    else:
+        # Return removal image for text removal sessions
+        return await get_removal_result(session_id, db_session)
 
 
 @router.get(
@@ -640,7 +747,8 @@ async def health_check(
             "storage": {
                 "status": "healthy",
                 "upload_dir": storage_info['upload_dir']['exists'],
-                "processed_dir": storage_info['processed_dir']['exists']
+                "removal_dir": storage_info['removal_dir']['exists'],
+                "generated_dir": storage_info['generated_dir']['exists']
             }
         }
         
@@ -686,7 +794,8 @@ async def service_info(
             max_file_size=storage_info['max_file_size'],
             storage_info={
                 "upload_dir": storage_info['upload_dir'],
-                "processed_dir": storage_info['processed_dir']
+                "removal_dir": storage_info['removal_dir'],
+                "generated_dir": storage_info['generated_dir']
             }
         )
         
@@ -715,7 +824,7 @@ async def generate_text_in_regions(
         session = await get_session_or_404(session_id, db_session)
         
         # Validate session state
-        if session.status not in [SessionStatus.DETECTED, SessionStatus.EDITING, SessionStatus.COMPLETED, SessionStatus.GENERATED]:
+        if session.status not in [SessionStatus.DETECTED, SessionStatus.EDITING, SessionStatus.REMOVED, SessionStatus.GENERATED]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Session {session_id} is not ready for text generation (status: {session.status.value})"
@@ -733,12 +842,14 @@ async def generate_text_in_regions(
         text_generation_use_case = GenerateTextInRegionsUseCase()
         updated_session = await text_generation_use_case.execute(session, regions_with_text)
         
-        # Session is already updated in database by use case
+        # Update session in database
+        repository = SessionRepository(db_session)
+        await repository.update(updated_session)
         
         # Return response
         return GenerateTextResponse(
             session_id=session_id,
-            status="completed",
+            status=updated_session.status.value,
             processed_image_url=f"/api/sessions/{session_id}/result",
             regions_processed=len([r for r in regions_with_text if r['user_text'].strip()]),
             message="Text generation completed successfully"
@@ -798,6 +909,69 @@ async def preview_text_generation(
         )
 
 
+@router.post(
+    "/sessions/{session_id}/cleanup-history",
+    summary="Cleanup session history files",
+    description="Clean up old generated and removal files for a session, keeping only the latest"
+)
+async def cleanup_session_history(session_id: str):
+    """Clean up old files for a session, keeping only the latest."""
+    try:
+        logger.info(f"Cleaning up history files for session {session_id}")
+        
+        # Clean up generated files
+        import glob
+        generated_pattern = f"generated/generated_{session_id}_*.png"
+        generated_files = glob.glob(generated_pattern)
+        
+        if generated_files:
+            # Sort by modification time, keep the latest, remove others
+            generated_files.sort(key=os.path.getmtime, reverse=True)
+            latest_generated = generated_files[0]
+            old_generated = generated_files[1:]
+            
+            for old_file in old_generated:
+                try:
+                    os.remove(old_file)
+                    logger.info(f"Cleaned up old generated file: {old_file}")
+                except OSError:
+                    logger.warning(f"Failed to remove generated file: {old_file}")
+        
+        # Clean up removal files
+        removal_pattern_new = f"removal/removal_{session_id}_*.png"
+        removal_pattern_old = f"removal/removal_{session_id}.png"
+        removal_files = glob.glob(removal_pattern_new) + glob.glob(removal_pattern_old)
+        
+        if removal_files:
+            # Sort by modification time, keep the latest, remove others
+            removal_files.sort(key=os.path.getmtime, reverse=True)
+            latest_removal = removal_files[0]
+            old_removal = removal_files[1:]
+            
+            for old_file in old_removal:
+                try:
+                    os.remove(old_file)
+                    logger.info(f"Cleaned up old removal file: {old_file}")
+                except OSError:
+                    logger.warning(f"Failed to remove removal file: {old_file}")
+        
+        cleaned_count = 0
+        if 'old_generated' in locals():
+            cleaned_count += len(old_generated)
+        if 'old_removal' in locals():
+            cleaned_count += len(old_removal)
+        logger.info(f"Cleanup completed for session {session_id}, removed {cleaned_count} old files")
+        
+        return {"message": f"Cleaned up {cleaned_count} old files for session {session_id}"}
+        
+    except Exception as e:
+        logger.error(f"Failed to cleanup history for session {session_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cleanup session history: {str(e)}"
+        )
+
+
 @router.put(
     "/sessions/{session_id}/restore",
     response_model=SessionDetailResponse,
@@ -854,6 +1028,28 @@ async def restore_session_state(
         else:
             session.processed_text_regions = []
             logger.info("Set processed_text_regions to empty")
+        
+        # Update session status based on the restored image type
+        if request.processed_image:
+            # If we're restoring a processed image, determine status from the image path
+            restored_path = request.processed_image.path
+            if 'removal' in restored_path:
+                # Restoring to removal image - set status to removed
+                session.transition_to_status(SessionStatus.REMOVED)
+                logger.info("Restored session status to REMOVED (removal image)")
+            elif 'generated' in restored_path:
+                # Restoring to generated image - set status to generated
+                session.transition_to_status(SessionStatus.GENERATED)
+                logger.info("Restored session status to GENERATED (generated image)")
+            else:
+                # Default to removed for other processed images
+                session.transition_to_status(SessionStatus.REMOVED)
+                logger.info("Restored session status to REMOVED (default)")
+        else:
+            # If no processed image, likely going back to detected state
+            if session.text_regions:
+                session.transition_to_status(SessionStatus.DETECTED)
+                logger.info("Restored session status to DETECTED (no processed image)")
         
         # Update session in database
         repository = SessionRepository(db_session)
@@ -1115,44 +1311,54 @@ async def iopaint_callback(task_id: str, request: Request, db_session: AsyncSess
         try:
             image_data = base64.b64decode(image_base64)
             
-            # Save to processed directory
+            # Save to removal directory
             file_storage = FileStorageService(
                 upload_dir=settings.upload_dir,
-                processed_dir=settings.processed_dir
+                removal_dir=settings.removal_dir,
+                generated_dir=settings.generated_dir
             )
             
-            processed_filename = f"processed_{session_id}.png"
-            processed_path = os.path.join(settings.processed_dir, processed_filename)
+            # Add timestamp to ensure unique filename and avoid caching issues
+            import time
+            timestamp = int(time.time() * 1000)  # milliseconds timestamp
+            removal_filename = f"removal_{session_id}_{timestamp}.png"
             
-            with open(processed_path, 'wb') as f:
+            # Ensure removal directory exists
+            os.makedirs(settings.removal_dir, exist_ok=True)
+            removal_path = os.path.join(settings.removal_dir, removal_filename)
+            
+            # Note: Old files are preserved to support undo functionality
+            # Files will be cleaned up when undo history is cleared
+            
+            with open(removal_path, 'wb') as f:
                 f.write(image_data)
             
-            # Create processed image file object
+            # Create removal image file object
             from uuid import uuid4
-            processed_image = ImageFile(
+            removal_image = ImageFile(
                 id=str(uuid4()),
-                filename=processed_filename,
-                path=processed_path,
+                filename=removal_filename,
+                path=removal_path,
                 mime_type="image/png",
                 size=len(image_data),
                 dimensions=session.original_image.dimensions  # Use original dimensions for now
             )
             
-            # Update session with processed image
-            session.processed_image = processed_image
-            session.status = SessionStatus.COMPLETED
+            # Update session with removal image (still use processed_image field for compatibility)
+            session.processed_image = removal_image
+            session.status = SessionStatus.REMOVED
             
             # Update session in database
             await repository.update(session)
             
             # Update task info in async processor
-            task_info.status = "completed"
-            task_info.stage = "completed"
+            task_info.status = "removed"
+            task_info.stage = "removed"
             task_info.progress = 100.0
             task_info.message = "Processing completed successfully"
             task_info.completed_at = datetime.now()
             task_info.result = {
-                "processed_image_path": processed_path,
+                "removal_image_path": removal_path,
                 "processing_time": callback_data.get("processing_time", 0),
                 "regions_processed": callback_data.get("regions_processed", 0)
             }
@@ -1160,13 +1366,14 @@ async def iopaint_callback(task_id: str, request: Request, db_session: AsyncSess
             # Send WebSocket completion notification to frontend
             from app.websocket.connection_manager import connection_manager
             progress_message = {
+                "type": "progress_update",
                 "task_id": task_info.task_id,
                 "status": task_info.status,
                 "stage": task_info.stage,
                 "progress": task_info.progress,
                 "message": task_info.message,
                 "session_id": task_info.session_id,
-                "processed_image_url": f"/api/v1/sessions/{task_info.session_id}/result",
+                "removal_image_url": f"/api/v1/sessions/{task_info.session_id}/removal",
                 "timestamp": datetime.now().isoformat()
             }
             await connection_manager.broadcast_to_task(task_info.task_id, progress_message)
@@ -1285,7 +1492,7 @@ async def get_statistics(db: AsyncSession = Depends(get_db_session)):
         
         # Add computed metrics
         stats["success_rate"] = (
-            stats["status_distribution"].get("completed", 0) + 
+            stats["status_distribution"].get("removed", 0) + 
             stats["status_distribution"].get("generated", 0)
         ) / max(stats["total_sessions"], 1) * 100
         
@@ -1320,7 +1527,7 @@ async def manual_cleanup():
         
         return {
             "message": "Cleanup completed successfully",
-            "cleaned": ["uploads", "processed", "exports", "database"]
+            "cleaned": ["uploads", "removal", "generated", "exports", "database"]
         }
         
     except Exception as e:

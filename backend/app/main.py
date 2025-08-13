@@ -170,32 +170,7 @@ def cleanup_cache_directories():
     else:
         logger.info("✨ Cache directories were already clean")
     
-    # Also clean database tables
-    try:
-        import sqlite3
-        db_path = "/app/data/labeltool.db"
-        if os.path.exists(db_path):
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            
-            # Get count before deletion
-            cursor.execute('SELECT COUNT(*) FROM sessions')
-            session_count = cursor.fetchone()[0]
-            cursor.execute('SELECT COUNT(*) FROM text_regions')
-            region_count = cursor.fetchone()[0]
-            
-            # Delete all data
-            cursor.execute('DELETE FROM text_regions')
-            cursor.execute('DELETE FROM sessions')
-            conn.commit()
-            conn.close()
-            
-            if session_count > 0 or region_count > 0:
-                logger.info(f"🗄️ Cleaned database: {session_count} sessions, {region_count} text regions")
-            else:
-                logger.info("✨ Database was already clean")
-    except Exception as e:
-        logger.warning(f"⚠️ Failed to clean database: {e}")
+    # Database cleanup is now handled by MySQL service restart
 
 
 def setup_events(app: FastAPI):
@@ -213,7 +188,8 @@ def setup_events(app: FastAPI):
         logger.info(f"API Host: {settings.api_host}:{settings.api_port}")
         logger.info(f"OCR Device: {settings.paddleocr_device}")
         logger.info(f"Upload Directory: {settings.upload_dir}")
-        logger.info(f"Processed Directory: {settings.processed_dir}")
+        logger.info(f"Removal Directory: {settings.removal_dir}")
+        logger.info(f"Generated Directory: {settings.generated_dir}")
         logger.info(f"Max File Size: {settings.max_file_size / 1024 / 1024:.1f}MB")
         
         # Preload PaddleOCR model at startup for faster first request
@@ -274,7 +250,8 @@ def setup_events(app: FastAPI):
             from app.infrastructure.storage.file_storage import FileStorageService
             file_service = FileStorageService(
                 upload_dir=settings.upload_dir,
-                processed_dir=settings.processed_dir
+                removal_dir=settings.removal_dir,
+                generated_dir=settings.generated_dir
             )
             cleaned_count = file_service.cleanup_temp_files(older_than_hours=1)
             logger.info(f"Cleaned up {cleaned_count} temporary files")

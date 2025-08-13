@@ -40,7 +40,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p uploads processed exports logs
+RUN mkdir -p uploads removal generated exports logs
 
 # Set environment variables
 ENV PYTHONPATH=/app
