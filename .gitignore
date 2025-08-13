@@ -247,11 +247,32 @@ temp/
 # Project-Specific Files
 # ============================
 
-# Backend directories
-backend/uploads/
-backend/processed/
-backend/exports/
-backend/logs/
+# Backend directories - track folders but ignore contents
+# Track the folders themselves
+!backend/uploads/
+!backend/removal/
+!backend/generated/
+!backend/exports/
+!backend/logs/
+!data/
+
+# But ignore all files within these directories
+backend/uploads/*
+backend/removal/*
+backend/generated/*
+backend/exports/*
+backend/logs/*
+data/*
+
+# Keep .gitkeep files if they exist
+!backend/uploads/.gitkeep
+!backend/removal/.gitkeep
+!backend/generated/.gitkeep
+!backend/exports/.gitkeep
+!backend/logs/.gitkeep
+!data/.gitkeep
+
+# Remove old temp/cache directories completely
 backend/temp/
 backend/cache/
 
@@ -271,7 +292,6 @@ frontend/build/
 *.tmp
 *.temp
 temp_*
-processed_*
 upload_*
 
 # Session data and temporary processing files
